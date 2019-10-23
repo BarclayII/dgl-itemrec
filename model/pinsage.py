@@ -83,19 +83,27 @@ class PinSageConv(nn.Module):
 class PinSage(nn.Module):
     '''
     Completes a multi-layer PinSage convolution
-    G: DGLGraph
+    HG: DGLHeteroGraph
+    ntype: node type whose embeddings are computed (items)
+    forward_etype: item-to-user edge type
+    backward_etype: user-to-item edge type
     feature_sizes: the dimensionality of input/hidden/output features
     T: number of neighbors we pick for each node
-    restart_prob: restart probability
-    max_nodes: max number of nodes visited for each seed
+    n_traces: number of random walk traces to generate for top-k neighborhood sampling
+    trace_len: length of each random walk trace
     '''
-    def __init__(self, num_nodes, feature_sizes, T, restart_prob, max_nodes,
-                 use_feature=False, G=None):
+    def __init__(self, HG, ntype, forward_etype, backward_etype,
+                 feature_sizes, T, n_traces, trace_len,
+                 use_feature=False):
         super(PinSage, self).__init__()
 
+        self.HG = HG
+        self.ntype = ntype
+        self.forward_etype = forward_etype
+        self.backward_etype = backward_etype
         self.T = T
-        self.restart_prob = restart_prob
-        self.max_nodes = max_nodes
+        self.n_traces = n_traces
+        self.trace_len = trace_len
 
         self.in_features = feature_sizes[0]
         self.out_features = feature_sizes[-1]
@@ -106,17 +114,18 @@ class PinSage(nn.Module):
             self.convs.append(PinSageConv(
                 feature_sizes[i], feature_sizes[i+1], feature_sizes[i+1]))
 
-        self.h = create_embeddings(num_nodes, self.in_features)
+        self.h = create_embeddings(HG.number_of_nodes(ntype), self.in_features)
         self.use_feature = use_feature
 
         if use_feature:
             self.emb = nn.ModuleDict()
             self.proj = nn.ModuleDict()
 
-            for key, scheme in G.node_attr_schemes().items():
+            # functions that project input categorical/real-valued features
+            for key, scheme in HG.node_attr_schemes(ntype).items():
                 if scheme.dtype == torch.int64:
                     self.emb[key] = nn.Embedding(
-                            G.ndata[key].max().item() + 1,
+                            HG.nodes[ntype].data[key].max().item() + 1,
                             self.in_features,
                             padding_idx=0)
                 elif scheme.dtype == torch.float32:
@@ -125,7 +134,7 @@ class PinSage(nn.Module):
                             nn.LeakyReLU(),
                             )
 
-    def forward(self, G, nodeset):
+    def forward(self, nodeset):
         '''
         Given a complete embedding matrix h and a list of node IDs, return
         the output embeddings of these node IDs.
@@ -134,12 +143,14 @@ class PinSage(nn.Module):
         return: new node embeddings (num_nodes, out_features)
         '''
         if self.use_feature:
-            h = mix_embeddings(self.h, G.ndata, self.emb, self.proj)
+            h = mix_embeddings(self.h, self.HG.nodes[self.ntype].data,
+                    self.emb, self.proj)
         else:
             h = self.h
 
         nodeflow = randomwalk.random_walk_nodeflow(
-                G, nodeset, self.n_layers, self.restart_prob, self.max_nodes, self.T)
+                HG, nodeset, self.n_layers, self.n_traces, self.trace_len,
+                self.forward_etype, self.backward_etype, self.T)
 
         for i, (nodeset, nb_weights, nb_nodes) in enumerate(nodeflow):
             new_embeddings = self.convs[i](h, nodeset, nb_nodes, nb_weights)

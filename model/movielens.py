@@ -91,6 +91,9 @@ class MovieLens(object):
         self.ratings['user_idx'] = self.ratings['user_id'].apply(lambda x: self.user_ids_invmap[x])
         self.ratings['movie_idx'] = self.ratings['movie_id'].apply(lambda x: self.movie_ids_invmap[x])
 
+        # unobserved items for each user in training set
+        self.neg_train = [None] * len(self.users)
+        # negative examples for validation and test for evaluating ranking
         self.neg_valid = np.zeros((len(self.users), neg_size), dtype='int64')
         self.neg_test = np.zeros((len(self.users), neg_size), dtype='int64')
         rating_groups = self.ratings.groupby('user_id')
@@ -100,6 +103,7 @@ class MovieLens(object):
 
             interacted_movies_valid = interacted_movies[timerank > 2]
             neg_samples = np.setdiff1d(np.arange(len(self.movies)), interacted_movies_valid)
+            self.neg_train[i] = neg_samples
             self.neg_valid[i] = np.random.choice(neg_samples, neg_size)
 
             interacted_movies_test = interacted_movies[timerank > 1]
