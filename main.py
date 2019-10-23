@@ -8,6 +8,11 @@ import tqdm
 from model.model import Model
 from model.ranking import ndcg
 
+if torch.cuda.is_available():
+    device = torch.device('cuda:0')
+else:
+    device = torch.device('cpu')
+
 n_epoch = 200
 batch_size = 32
 feature_size = 16
@@ -34,6 +39,8 @@ test_size = len(users_test)
 HG = dgl.heterograph({
     ('user', 'um', 'movie'): (ratings_train['user_idx'], ratings_train['movie_idx']),
     ('movie', 'mu', 'user'): (ratings_train['movie_idx'], ratings_train['user_idx'])})
+HG.nodes['movie'].data.update(data.movie_data)
+HG.to(device)
 
 pinsage_p = PinSage(
         HG, 'movie', 'mu', 'um', [feature_size] * n_layers, n_neighbors, n_traces,
@@ -81,30 +88,31 @@ for _ in range(n_epoch):
 
     hits_10s = []
     ndcg_10s = []
-    with tqdm.tqdm(valid_batches) as t:
-        for valid_batch_indices in t:
-            U = users_valid[valid_batch_indices]
-            I = movies_valid[valid_batch_indices]
-            I_neg = [torch.LongTensor(data.neg_valid[u]) for u in U.numpy()]
-            I_neg = torch.stack(I_neg, 0)
+    with torch.no_grad():
+        with tqdm.tqdm(valid_batches) as t:
+            for valid_batch_indices in t:
+                U = users_valid[valid_batch_indices]
+                I = movies_valid[valid_batch_indices]
+                I_neg = [torch.LongTensor(data.neg_valid[u]) for u in U.numpy()]
+                I_neg = torch.stack(I_neg, 0)
 
-            U = U.to(device)
-            I = I.to(device)
-            I_neg = I_neg.to(device)
+                U = U.to(device)
+                I = I.to(device)
+                I_neg = I_neg.to(device)
 
-            r, r_neg = model(HG, U, I, I_neg)
-            r_all = torch.cat([r[:, None], r_neg], 1).cpu().numpy()
-            ranks = np.array([scipy.stats.rankdata(-_r, 'min')[0] for _r in r_all])
-            relevance = (r_all.argsort(1) == 0).float().numpy()
+                r, r_neg = model(HG, U, I, I_neg)
+                r_all = torch.cat([r[:, None], r_neg], 1).cpu().numpy()
+                ranks = np.array([scipy.stats.rankdata(-_r, 'min')[0] for _r in r_all])
+                relevance = (r_all.argsort(1) == 0).float().numpy()
 
-            hits_10 = ranks <= 10
-            hits_10s.append(hits_10)
-            ndcg_10 = np.array([ndcg(_r, 10) for _r in relevance])
-            ndcg_10s.append(ndcg_10)
+                hits_10 = ranks <= 10
+                hits_10s.append(hits_10)
+                ndcg_10 = np.array([ndcg(_r, 10) for _r in relevance])
+                ndcg_10s.append(ndcg_10)
 
-            t.set_postfix({
-                'HITS@10': '%.03f' % hits_10.mean(),
-                'NDCG@10': '%.03f' % ndcg_10.mean()})
+                t.set_postfix({
+                    'HITS@10': '%.03f' % hits_10.mean(),
+                    'NDCG@10': '%.03f' % ndcg_10.mean()})
 
     hits_10 = np.concatenate(hits_10s).mean()
     ndcg_10 = np.concatenate(ndcg_10s).mean()

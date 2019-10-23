@@ -61,6 +61,40 @@ class MovieLens(object):
                 .astype({'year': 'category'}))
         self.genres = self.movies.columns[self.movies.dtypes == bool]
 
+        # parse movie features
+        movie_data = {}
+
+        movie_genres = torch.from_numpy(self.movies[self.genres].values.astype('float32'))
+        movie_data['genre'] = torch.zeros(g.number_of_nodes(), len(self.genres))
+        movie_data['genre'][len(user_ids):len(user_ids) + len(movie_ids)] = movie_genres
+
+        movie_data['year'] = torch.zeros(g.number_of_nodes(), dtype=torch.int64)
+        # 0 for padding
+        movie_data['year'][len(user_ids):len(user_ids) + len(movie_ids)] = \
+                torch.LongTensor(self.movies['year'].cat.codes.values.astype('int64') + 1)
+
+        nlp = stanfordnlp.Pipeline(use_gpu=False, processors='tokenize,lemma')
+        vocab = set()
+        title_words = []
+        for t in tqdm.tqdm(self.movies['title'].values):
+            doc = nlp(t)
+            words = set()
+            for s in doc.sentences:
+                words.update(w.lemma.lower() for w in s.words
+                             if not re.fullmatch(r'['+string.punctuation+']+', w.lemma))
+            vocab.update(words)
+            title_words.append(words)
+        vocab = list(vocab)
+        vocab_invmap = {w: i for i, w in enumerate(vocab)}
+        # bag-of-words
+        movie_data['title'] = torch.zeros(g.number_of_nodes(), len(vocab))
+        for i, tw in enumerate(tqdm.tqdm(title_words)):
+            movie_data['title'][i, [vocab_invmap[w] for w in tw]] = 1
+        self.vocab = vocab
+        self.vocab_invmap = vocab_invmap
+
+        self.movie_data = movie_data
+
         # read ratings
         with open(os.path.join(directory, 'ratings.dat')) as f:
             for l in f:
