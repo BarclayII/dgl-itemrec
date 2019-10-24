@@ -21,7 +21,7 @@ else:
 
 n_epoch = 200
 iters_per_epoch = 20000
-batch_size = 256
+batch_size = 32
 feature_size = 16
 n_layers = 2
 n_traces = 10
@@ -96,8 +96,9 @@ def train():
     for _ in range(n_epoch):
         # train
         neg, count = 0, 0
+        sum_loss = 0
         with tqdm.trange(iters_per_epoch) as t:
-            for _ in t:
+            for it in t:
                 I_q, I_i, I_neg = next(generator)
 
                 pos_overlap = [
@@ -129,7 +130,8 @@ def train():
                     assert not torch.isnan(d_param).any().item()
                 opt.step()
 
-                t.set_postfix({'loss': '%.06f' % loss.item()})
+                sum_loss += loss.item()
+                t.set_postfix({'loss': '%.06f' % loss.item(), 'avg': '%.06f' % (sum_loss / (it + 1))})
             print('neg:', neg / count)
 
         with torch.no_grad():
