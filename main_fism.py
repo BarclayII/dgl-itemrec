@@ -5,8 +5,10 @@ import torch.nn.functional as F
 import numpy as np
 import scipy.stats
 import tqdm
-from model.model import Model
+from model.model import FISM
+from model.pinsage import PinSage
 from model.ranking import ndcg
+from model.movielens import MovieLens
 
 if torch.cuda.is_available():
     device = torch.device('cuda:0')
@@ -23,7 +25,7 @@ n_neighbors = 3
 n_negs = 4
 weight_decay = 1e-2
 
-data = movielens.MovieLens('data/ml-1m/ml-1m')
+data = MovieLens('data/ml-1m/ml-1m')
 ratings = data.ratings
 ratings_train = ratings[~(ratings['valid_mask'] | ratings['test_mask'])]
 users_train = ratings_train['user_idx'].values
@@ -53,22 +55,22 @@ model = Model(HG, pinsage_p, pinsage_q)
 opt = torch.optim.AdamW(model.parameters(), weight_decay=weight_decay)
 
 for _ in range(n_epoch):
-    train_indices = torch.arange(len(ratings_train))
+    train_indices = torch.randperm(len(ratings_train))
     train_batches = train_indices.split(batch_size)
 
     with tqdm.tqdm(train_batches) as t:
         for train_batch_indices in t:
-            U = users_train[train_batch_indices]
-            I = movies_train[train_batch_indices]
+            U = torch.LongTensor(users_train[train_batch_indices])
+            I = torch.LongTensor(movies_train[train_batch_indices])
             I_neg = [torch.LongTensor(np.random.choice(data.neg_train[u], n_negs))
-                     for u in U.numpy()]
+                     for u in U]
             I_neg = torch.stack(I_neg, 0)
 
             U = U.to(device)
             I = I.to(device)
             I_neg = I_neg.to(device)
 
-            r, r_neg = model(HG, U, I, I_neg)
+            r, r_neg = model(I, U, I_neg)
             r_neg = r_neg.view(-1)
             r_all = torch.cat([r, r_neg])
             y = torch.cat([torch.ones_like(r), torch.zeros_like(r_neg)])

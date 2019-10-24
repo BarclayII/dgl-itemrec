@@ -3,7 +3,6 @@ import torch.nn as nn
 import torch.nn.functional as F
 import dgl
 from . import randomwalk
-from .utils import cuda
 
 def create_embeddings(n_nodes, n_features):
     return nn.Parameter(torch.randn(n_nodes, n_features))
@@ -134,6 +133,7 @@ class PinSage(nn.Module):
                             nn.LeakyReLU(),
                             )
 
+    @profile
     def forward(self, nodeset):
         '''
         Given a complete embedding matrix h and a list of node IDs, return
@@ -149,7 +149,7 @@ class PinSage(nn.Module):
             h = self.h
 
         nodeflow = randomwalk.random_walk_nodeflow(
-                HG, nodeset, self.n_layers, self.n_traces, self.trace_len,
+                self.HG, nodeset, self.n_layers, self.n_traces, self.trace_len,
                 self.forward_etype, self.backward_etype, self.T)
 
         for i, (nodeset, nb_weights, nb_nodes) in enumerate(nodeflow):

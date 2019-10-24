@@ -3,6 +3,7 @@ import dgl
 from collections import Counter
 
 
+@profile
 def bipartite_random_walk_sampler(
         HG, nodeset, n_traces, trace_len, forward_etype, backward_etype):
     '''
@@ -22,19 +23,21 @@ def bipartite_random_walk_sampler(
 
 # Note: this function is not friendly to giant graphs since we use a matrix
 # with size (num_nodes_in_nodeset, num_nodes_in_graph).
+@profile
 def random_walk_distribution(
         HG, nodeset, n_traces, trace_len, forward_etype, backward_etype):
     n_nodes = nodeset.shape[0]
-    n_available_nodes = HG.number_of_nodes()
+    item_ntype = HG.to_canonical_etype(forward_etype)[0]
+    n_available_nodes = HG.number_of_nodes(item_ntype)
     traces = bipartite_random_walk_sampler(
             HG, nodeset, n_traces, trace_len, forward_etype, backward_etype)
     visited_counts = torch.zeros(n_nodes, n_available_nodes)
-    for i in range(n_nodes):
-        visited_nodes = torch.cat(traces[i])
-        visited_counts[i].scatter_add_(0, visited_nodes, torch.ones_like(visited_nodes, dtype=torch.float32))
+    traces = traces.view(n_nodes, -1)
+    visited_counts.scatter_add_(1, traces, torch.ones_like(traces, dtype=torch.float32))
     return visited_counts
 
 
+@profile
 def random_walk_distribution_topt(
         HG, nodeset, n_traces, trace_len, forward_etype, backward_etype, top_T):
     '''
@@ -48,6 +51,7 @@ def random_walk_distribution_topt(
     return weights, nodes
 
 
+@profile
 def random_walk_nodeflow(
         HG, nodeset, n_layers, n_traces, trace_len, forward_etype, backward_etype, top_T):
     '''
