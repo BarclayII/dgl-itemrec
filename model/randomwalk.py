@@ -3,7 +3,7 @@ import dgl
 from collections import Counter
 
 
-@profile
+
 def bipartite_random_walk_sampler(
         HG, nodeset, n_traces, trace_len, forward_etype, backward_etype):
     '''
@@ -23,7 +23,7 @@ def bipartite_random_walk_sampler(
 
 # Note: this function is not friendly to giant graphs since we use a matrix
 # with size (num_nodes_in_nodeset, num_nodes_in_graph).
-@profile
+
 def random_walk_distribution(
         HG, nodeset, n_traces, trace_len, forward_etype, backward_etype):
     n_nodes = nodeset.shape[0]
@@ -37,7 +37,7 @@ def random_walk_distribution(
     return visited_counts
 
 
-@profile
+
 def random_walk_distribution_topt(
         HG, nodeset, n_traces, trace_len, forward_etype, backward_etype, top_T):
     '''
@@ -51,7 +51,7 @@ def random_walk_distribution_topt(
     return weights, nodes
 
 
-@profile
+
 def random_walk_nodeflow(
         HG, nodeset, n_layers, n_traces, trace_len, forward_etype, backward_etype, top_T):
     '''

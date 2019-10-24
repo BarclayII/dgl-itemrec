@@ -21,7 +21,7 @@ else:
 
 n_epoch = 200
 iters_per_epoch = 20000
-batch_size = 32
+batch_size = 256
 feature_size = 16
 n_layers = 2
 n_traces = 10
@@ -72,7 +72,7 @@ model = model.to(device)
 
 opt = torch.optim.AdamW(model.parameters(), weight_decay=weight_decay)
 
-@profile
+
 def cooccurrence_iterator(users, movies, batch_size, n_negs):
     M_um = ssp.coo_matrix((np.ones(train_size), (users_train, movies_train)))
     M_mm = (M_um.T * M_um).tocoo()
@@ -91,7 +91,7 @@ def cooccurrence_iterator(users, movies, batch_size, n_negs):
               torch.randint(0, M_mm.shape[0], (batch_size, n_negs)).to(device)
 generator = cooccurrence_iterator(users_train, movies_train, batch_size, n_negs)
 
-@profile
+
 def train():
     for _ in range(n_epoch):
         # train
@@ -132,16 +132,17 @@ def train():
                 t.set_postfix({'loss': '%.06f' % loss.item()})
             print('neg:', neg / count)
 
-        # evaluate - precompute item embeddings
         with torch.no_grad():
+            # evaluate - precompute item embeddings
             I_list = torch.arange(len(data.movies)).split(batch_size)
             z = torch.cat([model(I.to(device)) for I in I_list])
             hits_10s = []
             ndcg_10s = []
 
+            # evaluate one user-item interaction at a time
             for u, i in zip(users_valid, movies_valid):
                 I_q = user_latest_item[u]
-                I = torch.cat([torch.LongTensor([i]), self.neg_valid[u]])
+                I = torch.cat([torch.LongTensor([i]), torch.LongTensor(data.neg_valid[u])])
                 Z_q = z[I_q]
                 Z = z[I]
                 score = (Z_q[None, :] * Z).sum(1).cpu().numpy()

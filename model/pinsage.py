@@ -133,7 +133,7 @@ class PinSage(nn.Module):
                             nn.LeakyReLU(),
                             )
 
-    @profile
+    
     def forward(self, nodeset):
         '''
         Given a complete embedding matrix h and a list of node IDs, return
