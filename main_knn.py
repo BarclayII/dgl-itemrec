@@ -34,7 +34,7 @@ parser.add_argument('--weight-decay', type=float, default=1e-2)
 parser.add_argument('--margin', type=float, default=1.)
 parser.add_argument('--data-pickle', type=str, default='ml-1m.pkl')
 parser.add_argument('--data-path', type=str, default='/efs/quagan/movielens/ml-1m')
-parser.add_argument('--own-embedding', action='store_true')
+parser.add_argument('--id-as-feature', action='store_true')
 args = parser.parse_args()
 n_epoch = args.n_epoch
 iters_per_epoch = args.iters_per_epoch
@@ -49,7 +49,7 @@ weight_decay = args.weight_decay
 margin = args.margin
 data_pickle = args.data_pickle
 data_path = args.data_path
-own_embedding = args.own_embedding
+id_as_feature = args.id_as_feature
 
 # Load the cached dataset object, or parse the raw MovieLens data
 if os.path.exists(data_pickle):
@@ -89,7 +89,7 @@ HG.to(device)
 # Model and optimizer
 model = PinSage(
         HG, 'movie', 'mu', 'um', [feature_size] * n_layers, n_neighbors, n_traces,
-        trace_len, True, own_embedding)
+        trace_len, True, id_as_feature)
 model = model.to(device)
 
 opt = torch.optim.AdamW(model.parameters(), weight_decay=weight_decay)

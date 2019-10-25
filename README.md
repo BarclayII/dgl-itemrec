@@ -27,4 +27,4 @@ $ python main_fism.py
 
 ### Arguments
 
-* `--own-embedding`: whether to treat item ID as a feature.
+* `--id-as-feature`: whether to treat item ID as a feature.
