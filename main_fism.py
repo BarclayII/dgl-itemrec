@@ -7,6 +7,7 @@ import scipy.stats
 import tqdm
 import os
 import pickle
+import argparse
 from model.model import FISM
 from model.pinsage import PinSage
 from model.ranking import ndcg
@@ -17,17 +18,32 @@ if torch.cuda.is_available():
 else:
     device = torch.device('cpu')
 
-n_epoch = 200
-batch_size = 32
-feature_size = 16
-n_layers = 2
-n_traces = 10
-trace_len = 3
-n_neighbors = 3
-n_negs = 4
-weight_decay = 1e-2
-data_pickle = 'ml-1m.pkl'
-data_path = '/efs/quagan/movielens/ml-1m'
+parser = argparse.ArgumentParser()
+parser.add_argument('--n-epoch', type=int, default=200)
+parser.add_argument('--batch-size', type=int, default=32)
+parser.add_argument('--feature-size', type=int, default=16)
+parser.add_argument('--n-layers', type=int, default=2)
+parser.add_argument('--n-traces', type=int, default=10)
+parser.add_argument('--trace-len', type=int, default=3)
+parser.add_argument('--n-neighbors', type=int, default=3)
+parser.add_argument('--n-negs', type=int, default=4)
+parser.add_argument('--weight-decay', type=float, default=1e-2)
+parser.add_argument('--data-pickle', type=str, default='ml-1m.pkl')
+parser.add_argument('--data-path', type=str, default='/efs/quagan/movielens/ml-1m')
+parser.add_argument('--own-embedding', action='store_true')
+args = parser.parse_args()
+n_epoch = args.n_epoch
+batch_size = args.batch_size
+feature_size = args.feature_size
+n_layers = args.n_layers
+n_traces = args.n_traces
+trace_len = args.trace_len
+n_neighbors = args.n_neighbors
+n_negs = args.n_negs
+weight_decay = args.weight_decay
+data_pickle = args.data_pickle
+data_path = args.data_path
+own_embedding = args.own_embedding
 
 if os.path.exists(data_pickle):
     with open(data_pickle, 'rb') as f:
@@ -57,15 +73,15 @@ HG.to(device)
 
 pinsage_p = PinSage(
         HG, 'movie', 'mu', 'um', [feature_size] * n_layers, n_neighbors, n_traces,
-        trace_len, True)
+        trace_len, True, own_embedding)
 pinsage_q = PinSage(
         HG, 'movie', 'mu', 'um', [feature_size] * n_layers, n_neighbors, n_traces,
-        trace_len, True)
+        trace_len, True, own_embedding)
 model = FISM(HG, pinsage_p, pinsage_q).to(device)
 
 opt = torch.optim.AdamW(model.parameters(), weight_decay=weight_decay)
 
-@profile
+
 def train():
     for _ in range(n_epoch):
         train_indices = torch.randperm(len(ratings_train))
@@ -98,7 +114,7 @@ def train():
 
                 t.set_postfix({'loss': '%.06f' % loss.item()})
 
-        valid_indices = torch.arange(len(ratings_valid))
+        valid_indices = torch.arange(valid_size)
         valid_batches = valid_indices.split(batch_size)
 
         hits_10s = []
@@ -106,8 +122,8 @@ def train():
         with torch.no_grad():
             with tqdm.tqdm(valid_batches) as t:
                 for valid_batch_indices in t:
-                    U = users_valid[valid_batch_indices]
-                    I = movies_valid[valid_batch_indices]
+                    U = torch.LongTensor(users_valid[valid_batch_indices])
+                    I = torch.LongTensor(movies_valid[valid_batch_indices])
                     I_neg = [torch.LongTensor(data.neg_valid[u]) for u in U.numpy()]
                     I_neg = torch.stack(I_neg, 0)
 

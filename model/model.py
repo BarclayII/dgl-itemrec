@@ -25,7 +25,7 @@ class FISM(nn.Module):
         self.b_u = nn.Parameter(torch.zeros(HG.number_of_nodes('user')))
         self.b_i = nn.Parameter(torch.zeros(HG.number_of_nodes('movie')))
 
-    @profile
+    
     def forward(self, I, U, I_neg=None):
         '''
         I: 1D LongTensor

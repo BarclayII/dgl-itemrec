@@ -8,7 +8,7 @@ from . import randomwalk
 def create_embeddings(n_nodes, n_features):
     return nn.Parameter(torch.randn(n_nodes, n_features))
 
-def mix_embeddings(ndata, emb, proj):
+def mix_embeddings(h, ndata, emb, proj):
     '''Combine node-specific trainable embedding ``h`` with categorical inputs
     (projected by ``emb``) and numeric inputs (projected by ``proj``).
     '''
@@ -18,7 +18,7 @@ def mix_embeddings(ndata, emb, proj):
             e.append(emb[key](value))
         elif value.dtype == torch.float32:
             e.append(proj[key](value))
-    return torch.stack(e, 0).sum(0)
+    return h + torch.stack(e, 0).sum(0)
 
 def get_embeddings(h, nodeset):
     return h[nodeset]
@@ -94,7 +94,7 @@ class PinSage(nn.Module):
     '''
     def __init__(self, HG, ntype, forward_etype, backward_etype,
                  feature_sizes, T, n_traces, trace_len,
-                 use_feature=False):
+                 use_feature=False, own_embedding=False):
         super(PinSage, self).__init__()
 
         self.HG = HG
@@ -114,7 +114,10 @@ class PinSage(nn.Module):
             self.convs.append(PinSageConv(
                 feature_sizes[i], feature_sizes[i+1], feature_sizes[i+1]))
 
-        #self.h = create_embeddings(HG.number_of_nodes(ntype), self.in_features)
+        if own_embedding:
+            self.h = create_embeddings(HG.number_of_nodes(ntype), self.in_features)
+        else:
+            self.h = 0
         self.use_feature = use_feature
 
         if use_feature:
@@ -145,6 +148,7 @@ class PinSage(nn.Module):
         '''
         if self.use_feature:
             h = mix_embeddings(
+                    self.h,
                     self.HG.nodes[self.ntype].data,
                     self.emb, self.proj)
         else:
