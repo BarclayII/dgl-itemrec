@@ -18,6 +18,7 @@ if torch.cuda.is_available():
 else:
     device = torch.device('cpu')
 
+# Argument parsing
 parser = argparse.ArgumentParser()
 parser.add_argument('--n-epoch', type=int, default=200)
 parser.add_argument('--batch-size', type=int, default=32)
@@ -45,6 +46,7 @@ data_pickle = args.data_pickle
 data_path = args.data_path
 own_embedding = args.own_embedding
 
+# Load the cached dataset object, or parse the raw MovieLens data
 if os.path.exists(data_pickle):
     with open(data_pickle, 'rb') as f:
         data = pickle.load(f)
@@ -53,6 +55,7 @@ else:
     with open(data_pickle, 'wb') as f:
         pickle.dump(data, f)
 
+# Fetch the interaction and movie data as numpy arrays
 ratings = data.ratings
 ratings_train = ratings[~(ratings['valid_mask'] | ratings['test_mask'])]
 users_train = ratings_train['user_idx'].values
@@ -65,12 +68,14 @@ train_size = len(users_train)
 valid_size = len(users_valid)
 test_size = len(users_test)
 
+# Build the bidirectional bipartite graph and put the movie features
 HG = dgl.heterograph({
     ('user', 'um', 'movie'): (ratings_train['user_idx'], ratings_train['movie_idx']),
     ('movie', 'mu', 'user'): (ratings_train['movie_idx'], ratings_train['user_idx'])})
 HG.nodes['movie'].data.update(data.movie_data)
 HG.to(device)
 
+# Model and optimizer
 pinsage_p = PinSage(
         HG, 'movie', 'mu', 'um', [feature_size] * n_layers, n_neighbors, n_traces,
         trace_len, True, own_embedding)
