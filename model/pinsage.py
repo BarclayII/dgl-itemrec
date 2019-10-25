@@ -2,6 +2,7 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 import dgl
+import numpy as np
 from . import randomwalk
 
 def create_embeddings(n_nodes, n_features):
@@ -149,13 +150,15 @@ class PinSage(nn.Module):
         else:
             h = self.h
 
+        nodeset_unique = torch.LongTensor(np.unique(nodeset.cpu().numpy())).to(nodeset.device)
+
         nodeflow = randomwalk.random_walk_nodeflow(
-                self.HG, nodeset, self.n_layers, self.n_traces, self.trace_len,
+                self.HG, nodeset_unique, self.n_layers, self.n_traces, self.trace_len,
                 self.forward_etype, self.backward_etype, self.T)
 
-        for i, (nodeset, nb_weights, nb_nodes) in enumerate(nodeflow):
-            new_embeddings = self.convs[i](h, nodeset, nb_nodes, nb_weights)
-            h = put_embeddings(h, nodeset, new_embeddings)
+        for i, (curr_nodeset, nb_weights, nb_nodes) in enumerate(nodeflow):
+            new_embeddings = self.convs[i](h, curr_nodeset, nb_nodes, nb_weights)
+            h = put_embeddings(h, curr_nodeset, new_embeddings)
 
         h_new = get_embeddings(h, nodeset)
         return h_new

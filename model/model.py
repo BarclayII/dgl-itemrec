@@ -25,6 +25,7 @@ class FISM(nn.Module):
         self.b_u = nn.Parameter(torch.zeros(HG.number_of_nodes('user')))
         self.b_i = nn.Parameter(torch.zeros(HG.number_of_nodes('movie')))
 
+    @profile
     def forward(self, I, U, I_neg=None):
         '''
         I: 1D LongTensor
@@ -35,8 +36,9 @@ class FISM(nn.Module):
         device = I.device
         # all item embeddings needed for computation
         _, I_U = self.HG.out_edges(U, form='uv', etype='um')
+        I_U = I_U.to(device)
         # number of interacted items
-        N_U = self.HG['um'].out_degrees(U)
+        N_U = self.HG['um'].out_degrees(U).to(device)
         U_idx = torch.arange(U.shape[0], device=device).repeat_interleave(N_U)
 
         q = self.Q(I)
@@ -50,9 +52,9 @@ class FISM(nn.Module):
         if I_neg is not None:
             n_negs = I_neg.shape[1]
             I_neg_flat = I_neg.view(-1)
-            q_neg = self.Q(I_neg)
+            q_neg = self.Q(I_neg_flat)
             q_neg = q_neg.view(batch_size, n_negs, -1)  # batch_size, n_negs, n_dims
-            pq_neg = (p_sum.unsqueeze(1) * q).sum(2) / N_U.float().unsqueeze(1)
+            pq_neg = (p_sum.unsqueeze(1) * q_neg).sum(2) / N_U.float().unsqueeze(1)
             r_neg = self.b_u[U].unsqueeze(1) + self.b_i[I_neg] + pq_neg
             return r, r_neg
         else:

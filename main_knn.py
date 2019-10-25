@@ -31,7 +31,7 @@ n_negs = 4
 weight_decay = 1e-2
 margin = 1
 data_pickle = 'ml-1m.pkl'
-data_path = 'data/ml-1m'
+data_path = '/efs/quagan/movielens/ml-1m'
 
 if os.path.exists(data_pickle):
     with open(data_pickle, 'rb') as f:
