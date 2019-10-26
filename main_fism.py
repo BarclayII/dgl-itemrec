@@ -136,7 +136,7 @@ def train():
                     I = I.to(device)
                     I_neg = I_neg.to(device)
 
-                    r, r_neg = model(U, I, I_neg)
+                    r, r_neg = model(I, U, I_neg)
                     r_all = torch.cat([r[:, None], r_neg], 1).cpu().numpy()
                     ranks = np.array([scipy.stats.rankdata(-_r, 'min')[0] for _r in r_all])
                     relevance = (r_all.argsort(1) == 0)
