@@ -172,9 +172,9 @@ def train():
                 Z_q = z[I_q]
                 Z = z[I]
                 score = (Z_q[None, :] * Z).sum(1).cpu().numpy()
-                rank = score.argsort()
-                hits_10 = rank[0] < 10
-                relevance = (rank == 0)
+                rank = scipy.stats.rankdata(-score, 'min')
+                hits_10 = rank[0] <= 10
+                relevance = ((-score).argsort() == 0)
                 ndcg_10 = ndcg(relevance, 10)
 
                 hits_10s.append(hits_10)

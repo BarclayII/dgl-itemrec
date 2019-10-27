@@ -139,7 +139,7 @@ def train():
                     r, r_neg = model(I, U, I_neg)
                     r_all = torch.cat([r[:, None], r_neg], 1).cpu().numpy()
                     ranks = np.array([scipy.stats.rankdata(-_r, 'min')[0] for _r in r_all])
-                    relevance = (r_all.argsort(1) == 0)
+                    relevance = ((-r_all).argsort(1) == 0)
 
                     hits_10 = ranks <= 10
                     hits_10s.append(hits_10)
