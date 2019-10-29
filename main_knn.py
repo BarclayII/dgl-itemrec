@@ -30,11 +30,13 @@ parser.add_argument('--n-traces', type=int, default=10)
 parser.add_argument('--trace-len', type=int, default=3)
 parser.add_argument('--n-neighbors', type=int, default=3)
 parser.add_argument('--n-negs', type=int, default=4)
-parser.add_argument('--weight-decay', type=float, default=1e-2)
+parser.add_argument('--weight-decay', type=float, default=1e-5)
 parser.add_argument('--margin', type=float, default=1.)
+parser.add_argument('--max-c', type=float, default=10.)
 parser.add_argument('--data-pickle', type=str, default='ml-1m.pkl')
 parser.add_argument('--data-path', type=str, default='/efs/quagan/movielens/ml-1m')
 parser.add_argument('--id-as-feature', action='store_true')
+parser.add_argument('--lr', type=float, default=3e-4)
 args = parser.parse_args()
 n_epoch = args.n_epoch
 iters_per_epoch = args.iters_per_epoch
@@ -47,9 +49,11 @@ n_neighbors = args.n_neighbors
 n_negs = args.n_negs
 weight_decay = args.weight_decay
 margin = args.margin
+max_c = np.inf
 data_pickle = args.data_pickle
 data_path = args.data_path
 id_as_feature = args.id_as_feature
+lr = args.lr
 
 # Load the cached dataset object, or parse the raw MovieLens data
 if os.path.exists(data_pickle):
@@ -92,7 +96,7 @@ model = PinSage(
         trace_len, True, id_as_feature)
 model = model.to(device)
 
-opt = torch.optim.AdamW(model.parameters(), weight_decay=weight_decay)
+opt = torch.optim.Adam(model.parameters(), weight_decay=weight_decay, lr=lr)
 
 
 def cooccurrence_iterator(users, movies, batch_size, n_negs):
@@ -105,14 +109,18 @@ def cooccurrence_iterator(users, movies, batch_size, n_negs):
     rows = torch.LongTensor(rows)
     cols = torch.LongTensor(cols)
     prob = counts / counts.sum()
+    counts = torch.LongTensor(counts).float()
 
     while True:
         # torch.multinomial is A LOT slower than np.random.choice.  Ugh.
-        indices = np.random.choice(len(counts), batch_size, replace=True, p=prob)
-        indices = torch.LongTensor(indices)
-        yield rows[indices].to(device), \
-              cols[indices].to(device), \
-              torch.randint(0, M_mm.shape[0], (batch_size, n_negs)).to(device)
+        #indices = np.random.choice(len(counts), batch_size, replace=True, p=prob)
+        #indices = torch.LongTensor(indices)
+        indices_all = torch.randperm(len(counts))
+        for indices in indices_all.split(batch_size):
+            yield rows[indices].to(device), \
+                  cols[indices].to(device), \
+                  torch.randint(0, M_mm.shape[0], (batch_size, n_negs)).to(device), \
+                  counts[indices].to(device)
 generator = cooccurrence_iterator(users_train, movies_train, batch_size, n_negs)
 
 
@@ -123,7 +131,7 @@ def train():
         sum_loss = 0
         with tqdm.trange(iters_per_epoch) as t:
             for it in t:
-                I_q, I_i, I_neg = next(generator)
+                I_q, I_i, I_neg, c = next(generator)
 
                 pos_overlap = [
                         len(np.intersect1d(
@@ -141,11 +149,13 @@ def train():
 
                 z_q = model(I_q)
                 z_i = model(I_i)
-                z_neg = model(I_neg.view(-1)).view(batch_size, n_negs, -1)
+                z_neg = model(I_neg.view(-1)).view(z_q.shape[0], n_negs, -1)
 
                 score_pos = (z_q * z_i).sum(1)
                 score_neg = (z_q.unsqueeze(1) * z_neg).sum(2)
-                loss = (score_neg - score_pos.unsqueeze(1) + margin).clamp(min=0).mean()
+                c = c.clamp(max=max_c)
+                loss = (score_neg - score_pos.unsqueeze(1) + margin).clamp(min=0)
+                loss = (loss.mean(1) * c).sum() / c.sum()
 
                 opt.zero_grad()
                 loss.backward()

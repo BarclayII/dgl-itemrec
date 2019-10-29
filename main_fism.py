@@ -28,10 +28,11 @@ parser.add_argument('--n-traces', type=int, default=10)
 parser.add_argument('--trace-len', type=int, default=3)
 parser.add_argument('--n-neighbors', type=int, default=3)
 parser.add_argument('--n-negs', type=int, default=4)
-parser.add_argument('--weight-decay', type=float, default=1e-2)
+parser.add_argument('--weight-decay', type=float, default=1e-5)
 parser.add_argument('--data-pickle', type=str, default='ml-1m.pkl')
 parser.add_argument('--data-path', type=str, default='/efs/quagan/movielens/ml-1m')
 parser.add_argument('--id-as-feature', action='store_true')
+parser.add_argument('--lr', type=float, default=3e-4)
 args = parser.parse_args()
 n_epoch = args.n_epoch
 batch_size = args.batch_size
@@ -45,6 +46,7 @@ weight_decay = args.weight_decay
 data_pickle = args.data_pickle
 data_path = args.data_path
 id_as_feature = args.id_as_feature
+lr = args.lr
 
 # Load the cached dataset object, or parse the raw MovieLens data
 if os.path.exists(data_pickle):
@@ -84,7 +86,7 @@ pinsage_q = PinSage(
         trace_len, True, id_as_feature)
 model = FISM(HG, pinsage_p, pinsage_q).to(device)
 
-opt = torch.optim.AdamW(model.parameters(), weight_decay=weight_decay)
+opt = torch.optim.Adam(model.parameters(), weight_decay=weight_decay, lr=lr)
 
 
 def train():
