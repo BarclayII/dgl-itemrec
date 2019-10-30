@@ -127,25 +127,10 @@ generator = cooccurrence_iterator(users_train, movies_train, batch_size, n_negs)
 def train():
     for _ in range(n_epoch):
         # train
-        neg, count = 0, 0
         sum_loss = 0
         with tqdm.trange(iters_per_epoch) as t:
             for it in t:
                 I_q, I_i, I_neg, c = next(generator)
-
-                pos_overlap = [
-                        len(np.intersect1d(
-                            HG.successors(i, etype='mu').cpu().numpy(),
-                            HG.successors(j, etype='mu').cpu().numpy())) > 0
-                        for i, j in zip(I_q.cpu().numpy(), I_i.cpu().numpy())]
-                neg_overlap = [
-                        len(np.intersect1d(
-                            HG.successors(i, etype='mu').cpu().numpy(),
-                            HG.successors(j, etype='mu').cpu().numpy())) > 0
-                        for i, j in zip(I_q.cpu().numpy(), I_neg[:, 0].cpu().numpy())]
-                neg += sum(neg_overlap)
-                count += len(neg_overlap)
-                assert all(pos_overlap)
 
                 z_q = model(I_q)
                 z_i = model(I_i)
@@ -166,7 +151,6 @@ def train():
 
                 sum_loss += loss.item()
                 t.set_postfix({'loss': '%.06f' % loss.item(), 'avg': '%.06f' % (sum_loss / (it + 1))})
-            print('neg:', neg / count)
 
         with torch.no_grad():
             # evaluate - precompute item embeddings
