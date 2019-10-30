@@ -119,7 +119,7 @@ def cooccurrence_iterator(users, movies, batch_size, n_negs):
         for indices in indices_all.split(batch_size):
             yield rows[indices].to(device), \
                   cols[indices].to(device), \
-                  torch.randint(0, M_mm.shape[0], (batch_size, n_negs)).to(device), \
+                  torch.randint(0, M_mm.shape[0], (len(indices), n_negs)).to(device), \
                   counts[indices].to(device)
 generator = cooccurrence_iterator(users_train, movies_train, batch_size, n_negs)
 
@@ -149,7 +149,7 @@ def train():
 
                 z_q = model(I_q)
                 z_i = model(I_i)
-                z_neg = model(I_neg.view(-1)).view(z_q.shape[0], n_negs, -1)
+                z_neg = model(I_neg.view(-1)).view(I_neg.shape[0], n_negs, -1)
 
                 score_pos = (z_q * z_i).sum(1)
                 score_neg = (z_q.unsqueeze(1) * z_neg).sum(2)
