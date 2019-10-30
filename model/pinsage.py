@@ -153,8 +153,12 @@ class PinSage(nn.Module):
                     self.emb, self.proj)
         else:
             h = self.h
+        device = nodeset.device
 
         for i, (curr_nodeset, nb_weights, nb_nodes) in enumerate(nodeflow):
+            curr_nodeset = curr_nodeset.to(device)
+            nb_weights = nb_weights.to(device)
+            nb_nodes = nb_nodes.to(device)
             new_embeddings = self.convs[i](h, curr_nodeset, nb_nodes, nb_weights)
             h = put_embeddings(h, curr_nodeset, new_embeddings)
 

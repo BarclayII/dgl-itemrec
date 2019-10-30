@@ -15,7 +15,7 @@ from model.pinsage import PinSage
 from model.ranking import ndcg
 from model.movielens import MovieLens
 from model.randomwalk_sampler import CooccurrenceDataset, CooccurrenceNodeFlowGenerator
-from model.randomwalk_sampler import NodeDataset, NodeFlowGenerator
+from model.randomwalk_sampler import NodeDataset, NodeFlowGenerator, to_device
 
 if torch.cuda.is_available():
     device = torch.device('cuda:0')
@@ -40,6 +40,7 @@ parser.add_argument('--data-pickle', type=str, default='ml-1m.pkl')
 parser.add_argument('--data-path', type=str, default='/efs/quagan/movielens/ml-1m')
 parser.add_argument('--id-as-feature', action='store_true')
 parser.add_argument('--lr', type=float, default=3e-4)
+parser.add_argument('--num-workers', type=int, default=0)
 args = parser.parse_args()
 n_epoch = args.n_epoch
 iters_per_epoch = args.iters_per_epoch
@@ -57,6 +58,7 @@ data_pickle = args.data_pickle
 data_path = args.data_path
 id_as_feature = args.id_as_feature
 lr = args.lr
+num_workers = args.num_workers
 
 # Load the cached dataset object, or parse the raw MovieLens data
 if os.path.exists(data_pickle):
@@ -121,14 +123,14 @@ def train():
             batch_size=batch_size,
             drop_last=False,
             shuffle=True,
-            num_workers=2,
+            num_workers=num_workers,
             collate_fn=train_collator)
     valid_loader = DataLoader(
             train_dataset,
             batch_size=batch_size,
             drop_last=False,
             shuffle=False,
-            num_workers=2,
+            num_workers=num_workers,
             collate_fn=valid_collator)
     train_iter = cycle_iterator(train_loader)
 
@@ -137,7 +139,7 @@ def train():
         sum_loss = 0
         with tqdm.trange(iters_per_epoch) as t:
             for it in t:
-                I_q, I_i, I_neg, nf_q, nf_i, nf_neg, c = next(train_iter)
+                I_q, I_i, I_neg, nf_q, nf_i, nf_neg, c = to_device(next(train_iter), device)
 
                 z_q = model(I_q, nf_q)
                 z_i = model(I_i, nf_i)
@@ -162,8 +164,9 @@ def train():
         with torch.no_grad():
             # evaluate - precompute item embeddings
             z = []
-            for I, nf_i in valid_loader:
-                z.append(model(I.to(device), nf_i))
+            for item in valid_loader:
+                I, nf_i = to_device(item, device)
+                z.append(model(I, nf_i))
             z = torch.cat(z)
             hits_10s = []
             ndcg_10s = []

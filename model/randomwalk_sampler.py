@@ -7,7 +7,7 @@ import scipy.sparse as ssp
 def generate_pinsage_nodeflow(hg, etypes, seeds, num_neighbors, num_traces, trace_length,
                               num_layers):
     nodeflow = []
-    cur_nodeset = seeds
+    cur_nodeset = torch.unique(seeds)
 
     for i in reversed(range(num_layers)):
         nb_nodes, nb_weights = pinsage_neighbor_sampling(
@@ -130,3 +130,12 @@ class EdgeNodeFlowGenerator(BaseNodeFlowGenerator):
         nf_neg = self.generate(I_neg.view(-1))
 
         return U, I, I_neg, I_U, N_U, nf_i, nf_u, nf_neg
+
+
+def to_device(x, device):
+    if isinstance(x, list):
+        return [to_device(y, device) for y in x]
+    elif isinstance(x, tuple):
+        return tuple(to_device(y, device) for y in x)
+    else:
+        return x.to(device)
