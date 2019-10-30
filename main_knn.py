@@ -15,6 +15,7 @@ from model.pinsage import PinSage
 from model.ranking import ndcg
 from model.movielens import MovieLens
 from model.randomwalk_sampler import CooccurrenceDataset, CooccurrenceNodeFlowGenerator
+from model.randomwalk_sampler import NodeDataset, NodeFlowGenerator
 
 if torch.cuda.is_available():
     device = torch.device('cuda:0')
@@ -101,49 +102,42 @@ model = model.to(device)
 opt = torch.optim.Adam(model.parameters(), weight_decay=weight_decay, lr=lr)
 
 
-def cooccurrence_iterator(users, movies, batch_size, n_negs):
-    # Compute item-item cooccurrence matrix.
-    # The entries are the number of cooccurrences.
-    M_um = ssp.coo_matrix((np.ones(train_size), (users_train, movies_train)))
-    M_mm = (M_um.T * M_um).tocoo()
-
-    rows, cols, counts = M_mm.row, M_mm.col, M_mm.data
-    rows = torch.LongTensor(rows)
-    cols = torch.LongTensor(cols)
-    prob = counts / counts.sum()
-    counts = torch.LongTensor(counts).float()
-
+def cycle_iterator(loader):
     while True:
-        # torch.multinomial is A LOT slower than np.random.choice.  Ugh.
-        #indices = np.random.choice(len(counts), batch_size, replace=True, p=prob)
-        #indices = torch.LongTensor(indices)
-        indices_all = torch.randperm(len(counts))
-        for indices in indices_all.split(batch_size):
-            yield rows[indices].to(device), \
-                  cols[indices].to(device), \
-                  torch.randint(0, M_mm.shape[0], (len(indices), n_negs)).to(device), \
-                  counts[indices].to(device)
-generator = cooccurrence_iterator(users_train, movies_train, batch_size, n_negs)
+        it = iter(loader)
+        for elem in it:
+            yield elem
 
 
 def train():
     train_dataset = CooccurrenceDataset(users_train, movies_train)
-    collator = CooccurrenceNodeFlowGenerator(
-            HG, 'um', 'mu', n_neighbors, n_traces, trace_len, n_negs)
+    valid_dataset = NodeDataset(len(movies_train))
+    train_collator = CooccurrenceNodeFlowGenerator(
+            HG, 'um', 'mu', n_neighbors, n_traces, trace_len, model.n_layers, n_negs)
+    valid_collator = NodeFlowGenerator(
+            HG, 'um', 'mu', n_neighbors, n_traces, trace_len, model.n_layers, n_negs)
     train_loader = DataLoader(
             train_dataset,
             batch_size=batch_size,
             drop_last=False,
             shuffle=True,
-            num_workers=4,
-            collate_fn=collator)
+            num_workers=2,
+            collate_fn=train_collator)
+    valid_loader = DataLoader(
+            train_dataset,
+            batch_size=batch_size,
+            drop_last=False,
+            shuffle=False,
+            num_workers=2,
+            collate_fn=valid_collator)
+    train_iter = cycle_iterator(train_loader)
 
     for _ in range(n_epoch):
         # train
         sum_loss = 0
         with tqdm.trange(iters_per_epoch) as t:
             for it in t:
-                I_q, I_i, I_neg, nf_q, nf_i, nf_neg, c = next(train_loader)
+                I_q, I_i, I_neg, nf_q, nf_i, nf_neg, c = next(train_iter)
 
                 z_q = model(I_q, nf_q)
                 z_i = model(I_i, nf_i)
@@ -167,8 +161,10 @@ def train():
 
         with torch.no_grad():
             # evaluate - precompute item embeddings
-            I_list = torch.arange(len(data.movies)).split(batch_size)
-            z = torch.cat([model(I.to(device), collator.generate(I)) for I in I_list])
+            z = []
+            for I, nf_i in valid_loader:
+                z.append(model(I.to(device), nf_i))
+            z = torch.cat(z)
             hits_10s = []
             ndcg_10s = []
 
