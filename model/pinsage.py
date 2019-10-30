@@ -138,7 +138,7 @@ class PinSage(nn.Module):
                             )
 
     
-    def forward(self, nodeset):
+    def forward(self, nodeset, nodeflow):
         '''
         Given a complete embedding matrix h and a list of node IDs, return
         the output embeddings of these node IDs.
@@ -153,12 +153,6 @@ class PinSage(nn.Module):
                     self.emb, self.proj)
         else:
             h = self.h
-
-        nodeset_unique = torch.LongTensor(np.unique(nodeset.cpu().numpy())).to(nodeset.device)
-
-        nodeflow = randomwalk.random_walk_nodeflow(
-                self.HG, nodeset_unique, self.n_layers, self.n_traces, self.trace_len,
-                self.forward_etype, self.backward_etype, self.T)
 
         for i, (curr_nodeset, nb_weights, nb_nodes) in enumerate(nodeflow):
             new_embeddings = self.convs[i](h, curr_nodeset, nb_nodes, nb_weights)

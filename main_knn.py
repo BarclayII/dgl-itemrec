@@ -3,6 +3,7 @@ import os
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
+from torch.utils.data import DataLoader
 import numpy as np
 import pandas as pd
 import scipy.stats
@@ -13,6 +14,7 @@ import argparse
 from model.pinsage import PinSage
 from model.ranking import ndcg
 from model.movielens import MovieLens
+from model.randomwalk_sampler import CooccurrenceDataset, CooccurrenceNodeFlowGenerator
 
 if torch.cuda.is_available():
     device = torch.device('cuda:0')
@@ -32,7 +34,7 @@ parser.add_argument('--n-neighbors', type=int, default=3)
 parser.add_argument('--n-negs', type=int, default=4)
 parser.add_argument('--weight-decay', type=float, default=1e-5)
 parser.add_argument('--margin', type=float, default=1.)
-parser.add_argument('--max-c', type=float, default=10.)
+parser.add_argument('--max-c', type=float, default=np.inf)
 parser.add_argument('--data-pickle', type=str, default='ml-1m.pkl')
 parser.add_argument('--data-path', type=str, default='/efs/quagan/movielens/ml-1m')
 parser.add_argument('--id-as-feature', action='store_true')
@@ -49,7 +51,7 @@ n_neighbors = args.n_neighbors
 n_negs = args.n_negs
 weight_decay = args.weight_decay
 margin = args.margin
-max_c = np.inf
+max_c = args.max_c
 data_pickle = args.data_pickle
 data_path = args.data_path
 id_as_feature = args.id_as_feature
@@ -125,16 +127,27 @@ generator = cooccurrence_iterator(users_train, movies_train, batch_size, n_negs)
 
 
 def train():
+    train_dataset = CooccurrenceDataset(users_train, movies_train)
+    collator = CooccurrenceNodeFlowGenerator(
+            HG, 'um', 'mu', n_neighbors, n_traces, trace_len, n_negs)
+    train_loader = DataLoader(
+            train_dataset,
+            batch_size=batch_size,
+            drop_last=False,
+            shuffle=True,
+            num_workers=4,
+            collate_fn=collator)
+
     for _ in range(n_epoch):
         # train
         sum_loss = 0
         with tqdm.trange(iters_per_epoch) as t:
             for it in t:
-                I_q, I_i, I_neg, c = next(generator)
+                I_q, I_i, I_neg, nf_q, nf_i, nf_neg, c = next(train_loader)
 
-                z_q = model(I_q)
-                z_i = model(I_i)
-                z_neg = model(I_neg.view(-1)).view(I_neg.shape[0], n_negs, -1)
+                z_q = model(I_q, nf_q)
+                z_i = model(I_i, nf_i)
+                z_neg = model(I_neg.view(-1), nf_neg).view(I_neg.shape[0], n_negs, -1)
 
                 score_pos = (z_q * z_i).sum(1)
                 score_neg = (z_q.unsqueeze(1) * z_neg).sum(2)
@@ -155,7 +168,7 @@ def train():
         with torch.no_grad():
             # evaluate - precompute item embeddings
             I_list = torch.arange(len(data.movies)).split(batch_size)
-            z = torch.cat([model(I.to(device)) for I in I_list])
+            z = torch.cat([model(I.to(device), collator.generate(I)) for I in I_list])
             hits_10s = []
             ndcg_10s = []
 
