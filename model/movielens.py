@@ -91,6 +91,7 @@ class MovieLens(object):
         self.movies = self.movies[self.movies['id'].isin(self.ratings['movie_id'])]
         self.user_ids_invmap = {u: i for i, u in enumerate(self.users['id'])}
         self.movie_ids_invmap = {m: i for i, m in enumerate(self.movies['id'])}
+        self.movie_count = movie_count.reindex(self.movies['id'])
 
         self.ratings['user_idx'] = self.ratings['user_id'].apply(lambda x: self.user_ids_invmap[x])
         self.ratings['movie_idx'] = self.ratings['movie_id'].apply(lambda x: self.movie_ids_invmap[x])

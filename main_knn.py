@@ -162,18 +162,55 @@ def train():
             # evaluate one user-item interaction at a time
             for u, i in zip(users_valid, movies_valid):
                 I_q = user_latest_item[u]
-                I = torch.cat([torch.LongTensor([i]), torch.LongTensor(data.neg_valid[u])])
+                I_pos = np.array([i])
+                I_neg = data.neg_valid[u]
+                relevance = np.array([1])
+
+                I = torch.cat([torch.LongTensor(I_pos), torch.LongTensor(I_neg)])
                 Z_q = z[I_q]
                 Z = z[I]
                 score = (Z_q[None, :] * Z).sum(1).cpu().numpy()
-                rank = scipy.stats.rankdata(-score, 'min')
-                hits_10 = rank[0] <= 10
-                relevance = ((-score).argsort() == 0)
-                ndcg_10 = ndcg(relevance, 10)
 
+                hits_10, ndcg_10 = evaluate(score, len(I_pos), relevance)
                 hits_10s.append(hits_10)
                 ndcg_10s.append(ndcg_10)
 
             print('HITS@10:', np.mean(hits_10s), 'NDCG@10:', np.mean(ndcg_10s))
+            hits_10s = []
+            ndcg_10s = []
+
+            # evaluate multiple items of the same user
+            for u in range(len(data.users)):
+                I_q = user_latest_item[u]
+                I_pos = np.unique(movies_valid[users_valid == u])
+                if len(I_pos) == 0:
+                    continue
+                I_neg = data.neg_valid[u]
+                relevance = np.ones_like(I_pos)
+
+                I = torch.cat([torch.LongTensor(I_pos), torch.LongTensor(I_neg)])
+                Z_q = z[I_q]
+                Z = z[I]
+                score = (Z_q[None, :] * Z).sum(1).cpu().numpy()
+                hits_10, ndcg_10 = evaluate(score, len(I_pos), relevance)
+                hits_10s.append(hits_10)
+                ndcg_10s.append(ndcg_10)
+
+            print('MULTI: HITS@10:', np.mean(hits_10s), 'NDCG@10:', np.mean(ndcg_10s))
+
+def evaluate(score, n_pos, relevance, k=10):
+    """
+    score: score[:n_pos] are scores for positives, score[n_pos:] are for negatives
+    relevance[i] stands for the NDCG relevance of i-th positive item.
+    """
+    rank = scipy.stats.rankdata(-score, 'min')
+    hits_k = (rank[:n_pos] <= k).any()
+
+    full_relevance_array = np.zeros_like(score)
+    full_relevance_array[:n_pos] = relevance
+    full_relevance_array = full_relevance_array[(-score).argsort()]
+    ndcg_k = ndcg(full_relevance_array, k)
+
+    return hits_k, ndcg_k
 
 train()
