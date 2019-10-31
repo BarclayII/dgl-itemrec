@@ -178,17 +178,21 @@ def train():
             # evaluate one user-item interaction at a time
             for u, i in zip(users_valid, movies_valid):
                 I_q = user_latest_item[u]
-                I = torch.cat([torch.LongTensor([i]), torch.LongTensor(data.neg_valid[u])])
+                I_pos = np.array([i])
+                I_neg = data.neg_valid[u]
+                relevance = np.array([1])
+
+                I = torch.cat([torch.LongTensor(I_pos), torch.LongTensor(I_neg)])
                 Z_q = z[I_q]
                 Z = z[I]
                 score = (Z_q[None, :] * Z).sum(1).cpu().numpy()
                 baseline_score = baseline_score_all[I.numpy()]
 
-                hits_10, ndcg_10 = evaluate_single(score)
+                hits_10, ndcg_10 = evaluate(score, 1, relevance)
                 hits_10s.append(hits_10)
                 ndcg_10s.append(ndcg_10)
 
-                hits_10, ndcg_10 = evaluate_single(baseline_score)
+                hits_10, ndcg_10 = evaluate(baseline_score)
                 baseline_hits_10s.append(hits_10)
                 baseline_ndcg_10s.append(ndcg_10)
 
@@ -196,10 +200,19 @@ def train():
                   'HITS@10 (Most popular):', np.mean(baseline_hits_10s),
                   'NDCG@10 (Most popular):', np.mean(baseline_ndcg_10s))
 
-def evaluate_single(score):
-    """Assumes the first element is the score of ground truth and others are negative examples"""
+def evaluate(score, n_pos, relevance, k=10):
+    """
+    score: score[:n_pos] are scores for positives, score[n_pos:] are for negatives
+    relevance[i] stands for the NDCG relevance of i-th positive item.
+    """
     rank = scipy.stats.rankdata(-score, 'min')
-    relevance = ((-score).argsort() == 0)
-    return rank[0] <= 10, ndcg(relevance, 10)
+    hits_k = (rank[:n_pos] <= k).any()
+
+    full_relevance_array = np.zeros_like(score)
+    full_relevance_array[:n_pos] = relevance
+    full_relevance_array = full_relevance_array[(-score).argsort()]
+    ndcg_k = ndcg(full_relevance_array, k)
+
+    return hits_k, ndcg_k
 
 train()
