@@ -113,7 +113,7 @@ def cycle_iterator(loader):
 
 def train():
     train_dataset = CooccurrenceDataset(users_train, movies_train)
-    valid_dataset = NodeDataset(len(movies_train))
+    valid_dataset = NodeDataset(len(data.movies))
     train_collator = CooccurrenceNodeFlowGenerator(
             HG, 'um', 'mu', n_neighbors, n_traces, trace_len, model.n_layers, n_negs)
     valid_collator = NodeFlowGenerator(
@@ -126,7 +126,7 @@ def train():
             num_workers=num_workers,
             collate_fn=train_collator)
     valid_loader = DataLoader(
-            train_dataset,
+            valid_dataset,
             batch_size=batch_size,
             drop_last=False,
             shuffle=False,
@@ -139,7 +139,8 @@ def train():
         sum_loss = 0
         with tqdm.trange(iters_per_epoch) as t:
             for it in t:
-                I_q, I_i, I_neg, nf_q, nf_i, nf_neg, c = to_device(next(train_iter), device)
+                item = next(train_iter)
+                I_q, I_i, I_neg, nf_q, nf_i, nf_neg, c = to_device(item, device)
 
                 z_q = model(I_q, nf_q)
                 z_i = model(I_i, nf_i)

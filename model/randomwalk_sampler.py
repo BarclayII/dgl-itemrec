@@ -4,6 +4,7 @@ import torch
 import numpy as np
 import scipy.sparse as ssp
 
+
 def generate_pinsage_nodeflow(hg, etypes, seeds, num_neighbors, num_traces, trace_length,
                               num_layers):
     nodeflow = []
@@ -89,6 +90,7 @@ class CooccurrenceDataset(Dataset):
 
 
 class CooccurrenceNodeFlowGenerator(BaseNodeFlowGenerator):
+    
     def __call__(self, batch):
         I_q, I_i, c = zip(*batch)
         I_q = torch.LongTensor(I_q)
