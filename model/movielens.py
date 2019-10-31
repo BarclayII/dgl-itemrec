@@ -74,6 +74,7 @@ class MovieLens(object):
         ratings = pd.DataFrame(ratings)
         movie_count = ratings['movie_id'].value_counts()
         movie_count.name = 'movie_count'
+        self.movies = self.movies.join(movie_count, on='id')
         ratings = ratings.join(movie_count, on='movie_id')
         self.ratings = ratings
 

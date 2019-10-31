@@ -171,6 +171,9 @@ def train():
             z = torch.cat(z)
             hits_10s = []
             ndcg_10s = []
+            baseline_hits_10s = []
+            baseline_ndcg_10s = []
+            baseline_score_all = data.movies['movie_count'].values
 
             # evaluate one user-item interaction at a time
             for u, i in zip(users_valid, movies_valid):
@@ -179,14 +182,24 @@ def train():
                 Z_q = z[I_q]
                 Z = z[I]
                 score = (Z_q[None, :] * Z).sum(1).cpu().numpy()
-                rank = scipy.stats.rankdata(-score, 'min')
-                hits_10 = rank[0] <= 10
-                relevance = ((-score).argsort() == 0)
-                ndcg_10 = ndcg(relevance, 10)
+                baseline_score = baseline_score_all[I.numpy()]
 
+                hits_10, ndcg_10 = evaluate_single(score)
                 hits_10s.append(hits_10)
                 ndcg_10s.append(ndcg_10)
 
-            print('HITS@10:', np.mean(hits_10s), 'NDCG@10:', np.mean(ndcg_10s))
+                hits_10, ndcg_10 = evaluate_single(baseline_score)
+                baseline_hits_10s.append(hits_10)
+                baseline_ndcg_10s.append(ndcg_10)
+
+            print('HITS@10:', np.mean(hits_10s), 'NDCG@10:', np.mean(ndcg_10s),
+                  'HITS@10 (Most popular):', np.mean(baseline_hits_10s),
+                  'NDCG@10 (Most popular):', np.mean(baseline_ndcg_10s))
+
+def evaluate_single(score):
+    """Assumes the first element is the score of ground truth and others are negative examples"""
+    rank = scipy.stats.rankdata(-score, 'min')
+    relevance = ((-score).argsort() == 0)
+    return rank[0] <= 10, ndcg(relevance, 10)
 
 train()
