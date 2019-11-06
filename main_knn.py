@@ -12,7 +12,7 @@ import tqdm
 import pickle
 import argparse
 from model.pinsage import PinSage
-from model.ranking import ndcg
+from model.ranking import evaluate
 from model.movielens import MovieLens
 from model.randomwalk_sampler import CooccurrenceDataset, CooccurrenceNodeFlowGenerator
 from model.randomwalk_sampler import NodeDataset, NodeFlowGenerator, to_device
@@ -192,27 +192,12 @@ def train():
                 hits_10s.append(hits_10)
                 ndcg_10s.append(ndcg_10)
 
-                hits_10, ndcg_10 = evaluate(baseline_score)
+                hits_10, ndcg_10 = evaluate(baseline_score, 1, relevance)
                 baseline_hits_10s.append(hits_10)
                 baseline_ndcg_10s.append(ndcg_10)
 
             print('HITS@10:', np.mean(hits_10s), 'NDCG@10:', np.mean(ndcg_10s),
                   'HITS@10 (Most popular):', np.mean(baseline_hits_10s),
                   'NDCG@10 (Most popular):', np.mean(baseline_ndcg_10s))
-
-def evaluate(score, n_pos, relevance, k=10):
-    """
-    score: score[:n_pos] are scores for positives, score[n_pos:] are for negatives
-    relevance[i] stands for the NDCG relevance of i-th positive item.
-    """
-    rank = scipy.stats.rankdata(-score, 'min')
-    hits_k = (rank[:n_pos] <= k).any()
-
-    full_relevance_array = np.zeros_like(score)
-    full_relevance_array[:n_pos] = relevance
-    full_relevance_array = full_relevance_array[(-score).argsort()]
-    ndcg_k = ndcg(full_relevance_array, k)
-
-    return hits_k, ndcg_k
 
 train()

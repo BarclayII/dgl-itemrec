@@ -79,13 +79,13 @@ class MovieLens(object):
         self.ratings = ratings
 
         # determine test and validation set
-        self.ratings['timerank'] = self.ratings.groupby('user_id')['timestamp'].rank().astype('int')
+        self.ratings['timerank'] = self.ratings.groupby('user_id')['timestamp'].rank(ascending=False, method='first').astype('int')
         self.ratings['test_mask'] = (self.ratings['timerank'] == 1)
         self.ratings['valid_mask'] = (self.ratings['timerank'] == 2)
 
         # remove movies that only appear in validation and test set
-        movies_selected = self.ratings[self.ratings['timerank'] > 2]['movie_id'].unique()
-        self.ratings = self.ratings[self.ratings['movie_id'].isin(movies_selected)].copy()
+        #movies_selected = self.ratings[self.ratings['timerank'] > 2]['movie_id'].unique()
+        #self.ratings = self.ratings[self.ratings['movie_id'].isin(movies_selected)].copy()
 
         # drop users and movies which do not exist in ratings
         self.users = self.users[self.users['id'].isin(self.ratings['user_id'])]
@@ -129,6 +129,7 @@ class MovieLens(object):
 
         self.movie_data = movie_data
 
+        self.neg_size = neg_size
         # unobserved items for each user in training set
         self.neg_train = [None] * len(self.users)
         # negative examples for validation and test for evaluating ranking

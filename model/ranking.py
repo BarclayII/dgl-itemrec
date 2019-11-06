@@ -13,6 +13,7 @@
 #    limitations under the License.
 
 import numpy as np
+import scipy.stats
 
 """
 Implementation of normalized discounted cumulative gain.
@@ -119,3 +120,18 @@ def ndcg(relevance, nranks, alternate=True):
         return 0.0
 
     return dcg(rel, alternate) / ideal_dcg
+
+def evaluate(score, n_pos, relevance, k=10):
+    """
+    score: score[:n_pos] are scores for positives, score[n_pos:] are for negatives
+    relevance[i] stands for the NDCG relevance of i-th positive item.
+    """
+    rank = scipy.stats.rankdata(-score, 'min')
+    hits_k = (rank[:n_pos] <= k).any()
+
+    full_relevance_array = np.zeros_like(score)
+    full_relevance_array[:n_pos] = relevance
+    full_relevance_array = full_relevance_array[(-score).argsort()]
+    ndcg_k = ndcg(full_relevance_array, k)
+
+    return hits_k, ndcg_k

@@ -2,6 +2,7 @@ import dgl
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
+from torch.utils.data import DataLoader
 import numpy as np
 import scipy.stats
 import tqdm
@@ -10,8 +11,9 @@ import pickle
 import argparse
 from model.model import FISM
 from model.pinsage import PinSage
-from model.ranking import ndcg
+from model.ranking import evaluate
 from model.movielens import MovieLens
+from model.randomwalk_sampler import EdgeDataset, EdgeNodeFlowGenerator
 
 if torch.cuda.is_available():
     device = torch.device('cuda:0')
@@ -33,6 +35,7 @@ parser.add_argument('--data-pickle', type=str, default='ml-1m.pkl')
 parser.add_argument('--data-path', type=str, default='/efs/quagan/movielens/ml-1m')
 parser.add_argument('--id-as-feature', action='store_true')
 parser.add_argument('--lr', type=float, default=3e-4)
+parser.add_argument('--num-workers', type=int, default=0)
 args = parser.parse_args()
 n_epoch = args.n_epoch
 batch_size = args.batch_size
@@ -47,6 +50,7 @@ data_pickle = args.data_pickle
 data_path = args.data_path
 id_as_feature = args.id_as_feature
 lr = args.lr
+num_workers = args.num_workers
 
 # Load the cached dataset object, or parse the raw MovieLens data
 if os.path.exists(data_pickle):
@@ -90,23 +94,37 @@ opt = torch.optim.Adam(model.parameters(), weight_decay=weight_decay, lr=lr)
 
 
 def train():
+    train_dataset = EdgeDataset(users_train, movies_train, data.neg_train, n_negs)
+    valid_dataset = EdgeDataset(users_valid, movies_valid, data.neg_valid, data.neg_size)
+    train_collator = EdgeNodeFlowGenerator(
+            HG, 'um', 'mu', n_neighbors, n_traces, trace_len, pinsage_p.n_layers, n_negs)
+    valid_collator = EdgeNodeFlowGenerator(
+            HG, 'um', 'mu', n_neighbors, n_traces, trace_len, pinsage_p.n_layers, data.neg_size)
+    train_loader = DataLoader(
+            train_dataset,
+            batch_size=batch_size,
+            drop_last=False,
+            shuffle=True,
+            num_workers=num_workers,
+            collate_fn=train_collator)
+    valid_loader = DataLoader(
+            valid_dataset,
+            batch_size=1,
+            drop_last=False,
+            shuffle=False,
+            num_workers=num_workers,
+            collate_fn=valid_collator)
+
     for _ in range(n_epoch):
-        train_indices = torch.randperm(len(ratings_train))
-        train_batches = train_indices.split(batch_size)
-
-        with tqdm.tqdm(train_batches) as t:
-            for train_batch_indices in t:
-                U = torch.LongTensor(users_train[train_batch_indices])
-                I = torch.LongTensor(movies_train[train_batch_indices])
-                I_neg = [torch.LongTensor(np.random.choice(data.neg_train[u], n_negs))
-                         for u in U]
-                I_neg = torch.stack(I_neg, 0)
-
+        # train
+        sum_loss = 0
+        with tqdm.tqdm(train_loader) as t:
+            for U, I, I_neg, I_U, N_U, nf_i, nf_u, nf_neg in t:
                 U = U.to(device)
                 I = I.to(device)
                 I_neg = I_neg.to(device)
 
-                r, r_neg = model(I, U, I_neg)
+                r, r_neg = model(I, U, I_neg, I_U, N_U, nf_i, nf_u, nf_neg)
                 r_neg = r_neg.view(-1)
                 r_all = torch.cat([r, r_neg])
                 y = torch.cat([torch.ones_like(r), torch.zeros_like(r_neg)])
@@ -121,39 +139,24 @@ def train():
 
                 t.set_postfix({'loss': '%.06f' % loss.item()})
 
-        valid_indices = torch.arange(valid_size)
-        valid_batches = valid_indices.split(batch_size)
-
         hits_10s = []
         ndcg_10s = []
         with torch.no_grad():
-            with tqdm.tqdm(valid_batches) as t:
-                for valid_batch_indices in t:
-                    U = torch.LongTensor(users_valid[valid_batch_indices])
-                    I = torch.LongTensor(movies_valid[valid_batch_indices])
-                    I_neg = [torch.LongTensor(data.neg_valid[u]) for u in U.numpy()]
-                    I_neg = torch.stack(I_neg, 0)
-
+            with tqdm.tqdm(valid_loader) as t:
+                for U, I, I_neg, I_U, N_U, nf_i, nf_u, nf_neg in t:
                     U = U.to(device)
                     I = I.to(device)
                     I_neg = I_neg.to(device)
+                    relevance = np.array([1])
 
-                    r, r_neg = model(I, U, I_neg)
-                    r_all = torch.cat([r[:, None], r_neg], 1).cpu().numpy()
-                    ranks = np.array([scipy.stats.rankdata(-_r, 'min')[0] for _r in r_all])
-                    relevance = ((-r_all).argsort(1) == 0)
-
-                    hits_10 = ranks <= 10
+                    r, r_neg = model(I, U, I_neg, I_U, N_U, nf_i, nf_u, nf_neg)
+                    r_all = torch.cat([r[:, None], r_neg], 1).cpu().numpy()[0]
+                    hits_10, ndcg_10 = evaluate(r_all, 1, relevance)
                     hits_10s.append(hits_10)
-                    ndcg_10 = np.array([ndcg(_r, 10) for _r in relevance])
                     ndcg_10s.append(ndcg_10)
 
-                    t.set_postfix({
-                        'HITS@10': '%.03f' % hits_10.mean(),
-                        'NDCG@10': '%.03f' % ndcg_10.mean()})
-
-        hits_10 = np.concatenate(hits_10s).mean()
-        ndcg_10 = np.concatenate(ndcg_10s).mean()
+        hits_10 = np.mean(hits_10s)
+        ndcg_10 = np.mean(ndcg_10s)
         print('HITS@10: %.6f NDCG@10: %.6f' % (hits_10, ndcg_10))
 
 train()

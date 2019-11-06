@@ -106,12 +106,16 @@ class CooccurrenceNodeFlowGenerator(BaseNodeFlowGenerator):
 
 
 class EdgeDataset(Dataset):
-    def __init__(self, users, movies):
+    def __init__(self, users, movies, negs, n_negs_to_sample):
         self.users = users
         self.movies = movies
+        self.negs = negs
+        self.n_negs_to_sample = n_negs_to_sample
 
     def __getitem__(self, i):
-        return self.users[i], self.movies[i]
+        u = self.users[i]
+        return u, self.movies[i], \
+                np.random.choice(self.negs[u], self.n_negs_to_sample)
 
     def __len__(self):
         return len(self.users)
@@ -119,11 +123,10 @@ class EdgeDataset(Dataset):
 
 class EdgeNodeFlowGenerator(BaseNodeFlowGenerator):
     def __call__(self, batch):
-        U, I = zip(*batch)
+        U, I, I_neg = zip(*batch)
         U = torch.LongTensor(U)
         I = torch.LongTensor(I)
-        I_neg = [torch.LongTensor(np.random.choice(data.neg_train[u], n_negs)) for u in U]
-        I_neg = torch.stack(I_neg, 0)
+        I_neg = torch.LongTensor(np.stack(I_neg, 0))
         _, I_U = self.HG.out_edges(U, form='uv', etype=self.umtype)
         N_U = self.HG[self.umtype].out_degrees(U)
 
