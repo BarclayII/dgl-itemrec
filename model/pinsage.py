@@ -87,13 +87,13 @@ class PinSage(nn.Module):
     ntype: node type whose embeddings are computed (items)
     forward_etype: item-to-user edge type
     backward_etype: user-to-item edge type
-    feature_sizes: the dimensionality of input/hidden/output features
+    feature_size: the dimensionality of input/hidden/output features
     T: number of neighbors we pick for each node
     n_traces: number of random walk traces to generate for top-k neighborhood sampling
     trace_len: length of each random walk trace
     '''
     def __init__(self, HG, ntype, forward_etype, backward_etype,
-                 feature_sizes, T, n_traces, trace_len,
+                 feature_size, n_layers, T, n_traces, trace_len,
                  use_feature=False, own_embedding=False):
         super(PinSage, self).__init__()
 
@@ -105,14 +105,14 @@ class PinSage(nn.Module):
         self.n_traces = n_traces
         self.trace_len = trace_len
 
-        self.in_features = feature_sizes[0]
-        self.out_features = feature_sizes[-1]
-        self.n_layers = len(feature_sizes) - 1
+        self.in_features = feature_size
+        self.out_features = feature_size
+        self.n_layers = n_layers
 
         self.convs = nn.ModuleList()
         for i in range(self.n_layers):
             self.convs.append(PinSageConv(
-                feature_sizes[i], feature_sizes[i+1], feature_sizes[i+1]))
+                feature_size, feature_size, feature_size))
 
         if own_embedding:
             self.h = create_embeddings(HG.number_of_nodes(ntype), self.in_features)

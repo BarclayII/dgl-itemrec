@@ -97,7 +97,7 @@ HG.to(device)
 
 # Model and optimizer
 model = PinSage(
-        HG, 'movie', 'mu', 'um', [feature_size] * n_layers, n_neighbors, n_traces,
+        HG, 'movie', 'mu', 'um', feature_size, n_layers, n_neighbors, n_traces,
         trace_len, True, id_as_feature)
 model = model.to(device)
 

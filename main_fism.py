@@ -25,7 +25,7 @@ parser = argparse.ArgumentParser()
 parser.add_argument('--n-epoch', type=int, default=200)
 parser.add_argument('--batch-size', type=int, default=32)
 parser.add_argument('--feature-size', type=int, default=16)
-parser.add_argument('--n-layers', type=int, default=2)
+parser.add_argument('--n-layers', type=int, default=1)
 parser.add_argument('--n-traces', type=int, default=10)
 parser.add_argument('--trace-len', type=int, default=3)
 parser.add_argument('--n-neighbors', type=int, default=3)
@@ -83,10 +83,10 @@ HG.to(device)
 
 # Model and optimizer
 pinsage_p = PinSage(
-        HG, 'movie', 'mu', 'um', [feature_size] * n_layers, n_neighbors, n_traces,
+        HG, 'movie', 'mu', 'um', feature_size, n_layers, n_neighbors, n_traces,
         trace_len, True, id_as_feature)
 pinsage_q = PinSage(
-        HG, 'movie', 'mu', 'um', [feature_size] * n_layers, n_neighbors, n_traces,
+        HG, 'movie', 'mu', 'um', feature_size, n_layers, n_neighbors, n_traces,
         trace_len, True, id_as_feature)
 model = FISM(HG, pinsage_p, pinsage_q).to(device)
 
