@@ -36,6 +36,7 @@ parser.add_argument('--data-path', type=str, default='/efs/quagan/movielens/ml-1
 parser.add_argument('--id-as-feature', action='store_true')
 parser.add_argument('--lr', type=float, default=3e-4)
 parser.add_argument('--num-workers', type=int, default=0)
+parser.add_argument('--alpha', type=float, default=0)
 args = parser.parse_args()
 n_epoch = args.n_epoch
 batch_size = args.batch_size
@@ -51,6 +52,7 @@ data_path = args.data_path
 id_as_feature = args.id_as_feature
 lr = args.lr
 num_workers = args.num_workers
+alpha = args.alpha
 
 # Load the cached dataset object, or parse the raw MovieLens data
 if os.path.exists(data_pickle):
@@ -88,7 +90,7 @@ pinsage_p = PinSage(
 pinsage_q = PinSage(
         HG, 'movie', 'mu', 'um', feature_size, n_layers, n_neighbors, n_traces,
         trace_len, True, id_as_feature)
-model = FISM(HG, pinsage_p, pinsage_q).to(device)
+model = FISM(HG, pinsage_p, pinsage_q, alpha).to(device)
 
 opt = torch.optim.Adam(model.parameters(), weight_decay=weight_decay, lr=lr)
 

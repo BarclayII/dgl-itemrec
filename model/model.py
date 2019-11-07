@@ -16,7 +16,7 @@ class FISM(nn.Module):
     we replace them as outputs from two PinSAGE models ``P`` and
     ``Q``.
     """
-    def __init__(self, HG, P, Q):
+    def __init__(self, HG, P, Q, alpha=0):
         super().__init__()
 
         self.P = P
@@ -24,6 +24,7 @@ class FISM(nn.Module):
         self.HG = HG
         self.b_u = nn.Parameter(torch.zeros(HG.number_of_nodes('user')))
         self.b_i = nn.Parameter(torch.zeros(HG.number_of_nodes('movie')))
+        self.alpha = alpha
 
     
     def forward(self, I, U, I_neg, I_U, N_U, nf_i, nf_u, nf_neg):
@@ -41,9 +42,11 @@ class FISM(nn.Module):
 
         q = self.Q(I, nf_i)
         p = self.P(I_U, nf_u)
+        p_self = self.P(I, nf_i)
         p_sum = torch.zeros_like(q)
         p_sum = p_sum.scatter_add(0, U_idx[:, None].expand_as(p), p)    # batch_size, n_dims
-        pq = (p_sum * q).sum(1) / N_U.float()
+        p_ctx = p_sum - p_self
+        pq = (p_ctx * q).sum(1) / (N_U.float() ** self.alpha)
         r = self.b_u[U] + self.b_i[I] + pq
 
         if I_neg is not None:
@@ -51,7 +54,7 @@ class FISM(nn.Module):
             I_neg_flat = I_neg.view(-1)
             q_neg = self.Q(I_neg_flat, nf_neg)
             q_neg = q_neg.view(batch_size, n_negs, -1)  # batch_size, n_negs, n_dims
-            pq_neg = (p_sum.unsqueeze(1) * q_neg).sum(2) / N_U.float().unsqueeze(1)
+            pq_neg = (p_ctx.unsqueeze(1) * q_neg).sum(2) / (N_U.float().unsqueeze(1) ** self.alpha)
             r_neg = self.b_u[U].unsqueeze(1) + self.b_i[I_neg] + pq_neg
             return r, r_neg
         else:
