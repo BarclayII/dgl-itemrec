@@ -111,7 +111,7 @@ def train():
             collate_fn=train_collator)
     valid_loader = DataLoader(
             valid_dataset,
-            batch_size=1,
+            batch_size=batch_size,
             drop_last=False,
             shuffle=False,
             num_workers=num_workers,
@@ -152,10 +152,11 @@ def train():
                     relevance = np.array([1])
 
                     r, r_neg = model(I, U, I_neg, I_U, N_U, nf_i, nf_u, nf_neg)
-                    r_all = torch.cat([r[:, None], r_neg], 1).cpu().numpy()[0]
-                    hits_10, ndcg_10 = evaluate(r_all, 1, relevance)
-                    hits_10s.append(hits_10)
-                    ndcg_10s.append(ndcg_10)
+                    r_all = torch.cat([r[:, None], r_neg], 1).cpu().numpy()
+                    for _r_all in r_all:
+                        hits_10, ndcg_10 = evaluate(_r_all, 1, relevance)
+                        hits_10s.append(hits_10)
+                        ndcg_10s.append(ndcg_10)
 
         hits_10 = np.mean(hits_10s)
         ndcg_10 = np.mean(ndcg_10s)
