@@ -149,3 +149,25 @@ class MovieLens(object):
             interacted_movies_test = interacted_movies[timerank > 1]
             neg_samples = np.setdiff1d(np.arange(len(self.movies)), interacted_movies_test)
             self.neg_test[u] = np.random.choice(neg_samples, neg_size)
+
+        ratings_train = ratings[~(ratings['valid_mask'] | ratings['test_mask'])]
+        self.users_train = ratings_train['user_idx'].values
+        self.movies_train = ratings_train['movie_idx'].values
+        self.users_valid = ratings[ratings['valid_mask']]['user_idx'].values
+        self.movies_valid = ratings[ratings['valid_mask']]['movie_idx'].values
+        self.users_test = ratings[ratings['test_mask']]['user_idx'].values
+        self.movies_test = ratings[ratings['test_mask']]['movie_idx'].values
+        self.train_size = len(self.users_train)
+        self.valid_size = len(self.users_valid)
+        self.test_size = len(self.users_test)
+        user_latest_item_indices = (
+                ratings_train.groupby('user_id')['timestamp'].transform(pd.Series.max) ==
+                ratings_train['timestamp'])
+        user_latest_item = ratings_train[user_latest_item_indices]
+        user_latest_item = dict(
+                zip(user_latest_item['user_idx'].values, user_latest_item['movie_idx'].values))
+        self.user_latest_item = user_latest_item
+
+        self.movie_count = self.movies.sort_by_values('movie_idx')['movie_count'].values
+        self.num_users = num_users
+        self.num_movies = num_movies

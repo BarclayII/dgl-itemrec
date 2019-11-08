@@ -13,7 +13,7 @@ import pickle
 import argparse
 from model.pinsage import PinSage
 from model.ranking import evaluate
-from model.movielens import MovieLens
+from model.movielens2 import MovieLens
 from model.randomwalk_sampler import CooccurrenceDataset, CooccurrenceNodeFlowGenerator
 from model.randomwalk_sampler import NodeDataset, NodeFlowGenerator, to_device
 
@@ -37,7 +37,7 @@ parser.add_argument('--weight-decay', type=float, default=1e-5)
 parser.add_argument('--margin', type=float, default=1.)
 parser.add_argument('--max-c', type=float, default=np.inf)
 parser.add_argument('--data-pickle', type=str, default='ml-1m.pkl')
-parser.add_argument('--data-path', type=str, default='/efs/quagan/movielens/ml-1m')
+parser.add_argument('--data-path', type=str, default='ml-1m.dataset')
 parser.add_argument('--model-path', type=str, default='model.pt')
 parser.add_argument('--id-as-feature', action='store_true')
 parser.add_argument('--lr', type=float, default=3e-4)
@@ -72,28 +72,21 @@ else:
         pickle.dump(data, f)
 
 # Fetch the interaction and movie data as numpy arrays
-ratings = data.ratings
-ratings_train = ratings[~(ratings['valid_mask'] | ratings['test_mask'])]
-user_latest_item_indices = (
-        ratings_train.groupby('user_id')['timestamp'].transform(pd.Series.max) ==
-        ratings_train['timestamp'])
-user_latest_item = ratings_train[user_latest_item_indices]
-user_latest_item = dict(
-        zip(user_latest_item['user_idx'].values, user_latest_item['movie_idx'].values))
-users_train = ratings_train['user_idx'].values
-movies_train = ratings_train['movie_idx'].values
-users_valid = ratings[ratings['valid_mask']]['user_idx'].values
-movies_valid = ratings[ratings['valid_mask']]['movie_idx'].values
-users_test = ratings[ratings['test_mask']]['user_idx'].values
-movies_test = ratings[ratings['test_mask']]['movie_idx'].values
+user_latest_item = data.user_latest_item
+users_train = data.users_train
+movies_train = data.movies_train
+users_valid = data.users_valid
+movies_valid = data.movies_valid
+users_test = data.users_test
+movies_test = data.movies_test
 train_size = len(users_train)
 valid_size = len(users_valid)
 test_size = len(users_test)
 
 # Build the bidirectional bipartite graph and put the movie features
 HG = dgl.heterograph({
-    ('user', 'um', 'movie'): (ratings_train['user_idx'], ratings_train['movie_idx']),
-    ('movie', 'mu', 'user'): (ratings_train['movie_idx'], ratings_train['user_idx'])})
+    ('user', 'um', 'movie'): (users_train, movies_train),
+    ('movie', 'mu', 'user'): (movies_train, users_train)})
 HG.nodes['movie'].data.update(data.movie_data)
 HG.to(device)
 
@@ -115,8 +108,8 @@ def cycle_iterator(loader):
 
 def train():
     train_dataset = CooccurrenceDataset(users_train, movies_train)
-    valid_dataset = NodeDataset(len(data.movies))
-    test_dataset = NodeDataset(len(data.movies))
+    valid_dataset = NodeDataset(data.num_movies)
+    test_dataset = NodeDataset(data.num_movies)
     train_collator = CooccurrenceNodeFlowGenerator(
             HG, 'um', 'mu', n_neighbors, n_traces, trace_len, model.n_layers, n_negs)
     valid_collator = NodeFlowGenerator(
@@ -185,9 +178,6 @@ def train():
 
         hits_10s = []
         ndcg_10s = []
-        baseline_hits_10s = []
-        baseline_ndcg_10s = []
-        baseline_score_all = data.movies['movie_count'].values
 
         # evaluate one user-item interaction at a time
         for u, i in zip(users_valid, movies_valid):
@@ -200,23 +190,19 @@ def train():
             Z_q = z[I_q]
             Z = z[I]
             score = (Z_q[None, :] * Z).sum(1).cpu().numpy()
-            baseline_score = baseline_score_all[I.numpy()]
 
             hits_10, ndcg_10 = evaluate(score, 1, relevance)
             hits_10s.append(hits_10)
             ndcg_10s.append(ndcg_10)
 
-            hits_10, ndcg_10 = evaluate(baseline_score, 1, relevance)
-            baseline_hits_10s.append(hits_10)
-            baseline_ndcg_10s.append(ndcg_10)
-
         hits_10_valid = np.mean(hits_10s)
         ndcg_10_valid = np.mean(ndcg_10s)
-        baseline_hits_10 = np.mean(baseline_hits_10s)
-        baseline_ndcg_10 = np.mean(baseline_ndcg_10s)
 
         hits_10s = []
         ndcg_10s = []
+        baseline_hits_10s = []
+        baseline_ndcg_10s = []
+        baseline_score_all = data.movie_count
 
         # evaluate one user-item interaction at a time
         for u, i in zip(users_test, movies_test):
@@ -235,14 +221,21 @@ def train():
             hits_10s.append(hits_10)
             ndcg_10s.append(ndcg_10)
 
+            hits_10, ndcg_10 = evaluate(baseline_score, 1, relevance)
+            baseline_hits_10s.append(hits_10)
+            baseline_ndcg_10s.append(ndcg_10)
+
         hits_10_test = np.mean(hits_10s)
         ndcg_10_test = np.mean(ndcg_10s)
+        baseline_hits_10_test = np.mean(baseline_hits_10s)
+        baseline_ndcg_10_test = np.mean(baseline_ndcg_10s)
 
         torch.save(model.state_dict(), model_path)
 
         print('HITS@10:', hits_10_valid, 'NDCG@10:', ndcg_10_valid,
-              'HITS@10 (Most popular):', baseline_hits_10,
-              'NDCG@10 (Most popular):', baseline_ndcg_10,
-              'HITS@10 (Test):', hits_10_test, 'NDCG@10 (Test):', ndcg_10_test)
+              'HITS@10 (Test):', hits_10_test, 'NDCG@10 (Test):', ndcg_10_test,
+              'HITS@10 (Most popular):', baseline_hits_10_test,
+              'NDCG@10 (Most popular):', baseline_ndcg_10_test,
+              )
 
 train()
