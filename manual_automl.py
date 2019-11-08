@@ -12,9 +12,16 @@ from collections import OrderedDict
 logger = mp.log_to_stderr()
 logger.setLevel(logging.INFO)
 
+def get_best_model_name(hyperparams, script_name):
+    args, kwargs = hyperparams
+    kv = ['%s=%s' % (k, kwargs[k]) for k in sorted(kwargs.keys())]
+    return '-'.join([script_name] + args + kv) + '.pt'
+
+gpu_ids = [0, 1, 2, 3]
+
 def work(hyperparams, script_name, regex, better):
     identity = mp.current_process()._identity
-    gpu_id = mp.current_process()._identity[0] if len(identity) > 0 else 1
+    gpu_id = gpu_ids[(mp.current_process()._identity[0] - 1) if len(identity) > 0 else 0]
     newenv = os.environ.copy()
     newenv['CUDA_VISIBLE_DEVICES'] = str(gpu_id)
 
@@ -23,31 +30,39 @@ def work(hyperparams, script_name, regex, better):
 
     args, kwargs = hyperparams
     best = None
+    model_path = 'model.pt.' + str(os.getpid())
+    best_model_path = 'best_' + model_path
+    kwargs['model-path'] = model_path
 
     for l in sh.python3('-u', script_name, *args, _env=newenv, _iter=True, **kwargs):
         m = re.search(regex, l)
         if m is None:
             continue
         metric = float(m.group(1))
-        logger.info('PID %d metric %.6f' % (os.getpid(), metric))
+        logger.info('PID %d %s' % (os.getpid(), l.strip()))
         if best is None or better(metric, best):
             best = metric
+            sh.cp(model_path, best_model_path)
 
     logger.info('Finished %s on PID %d and GPU %d with best metric %.6f' % (hyperparams, os.getpid(), gpu_id, best))
+    sh.cp(best_model_path, get_best_model_name(hyperparams, script_name))
+    sh.rm(best_model_path)
+    sh.rm(model_path)
     return hyperparams, best
 
 
 hyperparam_grid = {
-        'batch-size': [1024, 2048, 4096],
-        'feature-size': [8, 16, 32],
-        'weight-decay': [1e-4, 1e-3, 1e-2],
+        'batch-size': [1024],
+        'feature-size': [16],
+        'weight-decay': [1e-2],
         'lr': [1e-4],
         'num-workers': [2],
         'id-as-feature': [True],
-        'n-negs': [4, 10, 40],
+        'n-negs': [40],
         'n-neighbors': [2],
-        'n-layers': [0],
-        'n-epoch': [40]}
+        'n-layers': [0, 1],
+        'n-epoch': [40],
+        'pretrain': [False, True]}
 
 def hyperparam_iterator(grid, sel=None):
     grid = OrderedDict(grid)
@@ -75,7 +90,7 @@ def hyperparam_iterator(grid, sel=None):
 script = 'main_fism.py'
 #script = 'main_knn.py'
 outfile = open('result.' + script + '.log', 'w')
-with mp.Pool(3) as p:
+with mp.Pool(len(gpu_ids)) as p:
     result = p.imap(
             partial(
                 work,

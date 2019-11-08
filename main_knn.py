@@ -38,6 +38,7 @@ parser.add_argument('--margin', type=float, default=1.)
 parser.add_argument('--max-c', type=float, default=np.inf)
 parser.add_argument('--data-pickle', type=str, default='ml-1m.pkl')
 parser.add_argument('--data-path', type=str, default='/efs/quagan/movielens/ml-1m')
+parser.add_argument('--model-path', type=str, default='model.pt')
 parser.add_argument('--id-as-feature', action='store_true')
 parser.add_argument('--lr', type=float, default=3e-4)
 parser.add_argument('--num-workers', type=int, default=0)
@@ -56,6 +57,7 @@ margin = args.margin
 max_c = args.max_c
 data_pickle = args.data_pickle
 data_path = args.data_path
+model_path = args.model_path
 id_as_feature = args.id_as_feature
 lr = args.lr
 num_workers = args.num_workers
@@ -114,9 +116,12 @@ def cycle_iterator(loader):
 def train():
     train_dataset = CooccurrenceDataset(users_train, movies_train)
     valid_dataset = NodeDataset(len(data.movies))
+    test_dataset = NodeDataset(len(data.movies))
     train_collator = CooccurrenceNodeFlowGenerator(
             HG, 'um', 'mu', n_neighbors, n_traces, trace_len, model.n_layers, n_negs)
     valid_collator = NodeFlowGenerator(
+            HG, 'um', 'mu', n_neighbors, n_traces, trace_len, model.n_layers, n_negs)
+    test_collator = NodeFlowGenerator(
             HG, 'um', 'mu', n_neighbors, n_traces, trace_len, model.n_layers, n_negs)
     train_loader = DataLoader(
             train_dataset,
@@ -132,7 +137,15 @@ def train():
             shuffle=False,
             num_workers=num_workers,
             collate_fn=valid_collator)
+    test_loader = DataLoader(
+            test_dataset,
+            batch_size=batch_size,
+            drop_last=False,
+            shuffle=False,
+            num_workers=num_workers,
+            collate_fn=test_collator)
     train_iter = cycle_iterator(train_loader)
+    best_metric = None
 
     for _ in range(n_epoch):
         # train
@@ -169,35 +182,67 @@ def train():
                 I, nf_i = to_device(item, device)
                 z.append(model(I, nf_i))
             z = torch.cat(z)
-            hits_10s = []
-            ndcg_10s = []
-            baseline_hits_10s = []
-            baseline_ndcg_10s = []
-            baseline_score_all = data.movies['movie_count'].values
 
-            # evaluate one user-item interaction at a time
-            for u, i in zip(users_valid, movies_valid):
-                I_q = user_latest_item[u]
-                I_pos = np.array([i])
-                I_neg = data.neg_valid[u]
-                relevance = np.array([1])
+        hits_10s = []
+        ndcg_10s = []
+        baseline_hits_10s = []
+        baseline_ndcg_10s = []
+        baseline_score_all = data.movies['movie_count'].values
 
-                I = torch.cat([torch.LongTensor(I_pos), torch.LongTensor(I_neg)])
-                Z_q = z[I_q]
-                Z = z[I]
-                score = (Z_q[None, :] * Z).sum(1).cpu().numpy()
-                baseline_score = baseline_score_all[I.numpy()]
+        # evaluate one user-item interaction at a time
+        for u, i in zip(users_valid, movies_valid):
+            I_q = user_latest_item[u]
+            I_pos = np.array([i])
+            I_neg = data.neg_valid[u]
+            relevance = np.array([1])
 
-                hits_10, ndcg_10 = evaluate(score, 1, relevance)
-                hits_10s.append(hits_10)
-                ndcg_10s.append(ndcg_10)
+            I = torch.cat([torch.LongTensor(I_pos), torch.LongTensor(I_neg)])
+            Z_q = z[I_q]
+            Z = z[I]
+            score = (Z_q[None, :] * Z).sum(1).cpu().numpy()
+            baseline_score = baseline_score_all[I.numpy()]
 
-                hits_10, ndcg_10 = evaluate(baseline_score, 1, relevance)
-                baseline_hits_10s.append(hits_10)
-                baseline_ndcg_10s.append(ndcg_10)
+            hits_10, ndcg_10 = evaluate(score, 1, relevance)
+            hits_10s.append(hits_10)
+            ndcg_10s.append(ndcg_10)
 
-            print('HITS@10:', np.mean(hits_10s), 'NDCG@10:', np.mean(ndcg_10s),
-                  'HITS@10 (Most popular):', np.mean(baseline_hits_10s),
-                  'NDCG@10 (Most popular):', np.mean(baseline_ndcg_10s))
+            hits_10, ndcg_10 = evaluate(baseline_score, 1, relevance)
+            baseline_hits_10s.append(hits_10)
+            baseline_ndcg_10s.append(ndcg_10)
+
+        hits_10_valid = np.mean(hits_10s)
+        ndcg_10_valid = np.mean(ndcg_10s)
+        baseline_hits_10 = np.mean(baseline_hits_10s)
+        baseline_ndcg_10 = np.mean(baseline_ndcg_10s)
+
+        hits_10s = []
+        ndcg_10s = []
+
+        # evaluate one user-item interaction at a time
+        for u, i in zip(users_test, movies_test):
+            I_q = user_latest_item[u]
+            I_pos = np.array([i])
+            I_neg = data.neg_test[u]
+            relevance = np.array([1])
+
+            I = torch.cat([torch.LongTensor(I_pos), torch.LongTensor(I_neg)])
+            Z_q = z[I_q]
+            Z = z[I]
+            score = (Z_q[None, :] * Z).sum(1).cpu().numpy()
+            baseline_score = baseline_score_all[I.numpy()]
+
+            hits_10, ndcg_10 = evaluate(score, 1, relevance)
+            hits_10s.append(hits_10)
+            ndcg_10s.append(ndcg_10)
+
+        hits_10_test = np.mean(hits_10s)
+        ndcg_10_test = np.mean(ndcg_10s)
+
+        torch.save(model.state_dict(), model_path)
+
+        print('HITS@10:', hits_10_valid, 'NDCG@10:', ndcg_10_valid,
+              'HITS@10 (Most popular):', baseline_hits_10,
+              'NDCG@10 (Most popular):', baseline_ndcg_10,
+              'HITS@10 (Test):', hits_10_test, 'NDCG@10 (Test):', ndcg_10_test)
 
 train()

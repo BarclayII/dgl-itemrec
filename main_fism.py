@@ -9,6 +9,7 @@ import tqdm
 import os
 import pickle
 import argparse
+import sh
 from model.model import FISM
 from model.pinsage import PinSage
 from model.ranking import evaluate
@@ -33,10 +34,12 @@ parser.add_argument('--n-negs', type=int, default=4)
 parser.add_argument('--weight-decay', type=float, default=1e-5)
 parser.add_argument('--data-pickle', type=str, default='ml-1m.pkl')
 parser.add_argument('--data-path', type=str, default='/efs/quagan/movielens/ml-1m')
+parser.add_argument('--model-path', type=str, default='model.pt')
 parser.add_argument('--id-as-feature', action='store_true')
 parser.add_argument('--lr', type=float, default=3e-4)
 parser.add_argument('--num-workers', type=int, default=0)
 parser.add_argument('--alpha', type=float, default=0)
+parser.add_argument('--pretrain', action='store_true')
 args = parser.parse_args()
 n_epoch = args.n_epoch
 batch_size = args.batch_size
@@ -49,10 +52,12 @@ n_negs = args.n_negs
 weight_decay = args.weight_decay
 data_pickle = args.data_pickle
 data_path = args.data_path
+model_path = args.model_path
 id_as_feature = args.id_as_feature
 lr = args.lr
 num_workers = args.num_workers
 alpha = args.alpha
+pretrain = args.pretrain
 
 # Load the cached dataset object, or parse the raw MovieLens data
 if os.path.exists(data_pickle):
@@ -94,13 +99,44 @@ model = FISM(HG, pinsage_p, pinsage_q, alpha).to(device)
 
 opt = torch.optim.Adam(model.parameters(), weight_decay=weight_decay, lr=lr)
 
+# pretrain with matrix factorization
+if pretrain:
+    import tempfile
+    tmpfile_train_data = tempfile.NamedTemporaryFile('w+')
+    tmpfile_valid_data = tempfile.NamedTemporaryFile('w+')
+    tmpfile_train_model = tmpfile_train_data.name + '.model'
+    tmpfile_train_item_model = tmpfile_train_data.name + '.item'
+
+    for u, m in zip(users_train, movies_train):
+        print(u, m, 1, file=tmpfile_train_data)
+    for u, m in zip(users_valid, movies_valid):
+        print(u, m, 1, file=tmpfile_valid_data)
+    mf_train = sh.Command('libmf/mf-train')
+    mf_train('-f', 10, '-p', tmpfile_valid_data.name,
+             '-k', feature_size, '-t', 6,
+             tmpfile_train_data.name, tmpfile_train_model)
+    with open(tmpfile_train_model) as f, open(tmpfile_train_item_model, 'w') as f_item:
+        for l in f:
+            if l.startswith('q'):
+                id_, not_nan, item_data = l[1:].split(' ', 2)
+                assert not_nan == 'T'
+                print(item_data, file=f_item)
+    item_emb = np.loadtxt(tmpfile_train_item_model, dtype=np.float32)
+    sh.rm(tmpfile_train_model, tmpfile_train_item_model)
+    item_emb = torch.FloatTensor(item_emb)
+    pinsage_p.h.data[:] = item_emb
+    pinsage_q.h.data[:] = item_emb
+
 
 def train():
     train_dataset = EdgeDataset(users_train, movies_train, data.neg_train, n_negs)
     valid_dataset = EdgeDataset(users_valid, movies_valid, data.neg_valid, data.neg_size)
+    test_dataset = EdgeDataset(users_test, movies_test, data.neg_test, data.neg_size)
     train_collator = EdgeNodeFlowGenerator(
             HG, 'um', 'mu', n_neighbors, n_traces, trace_len, pinsage_p.n_layers, n_negs)
     valid_collator = EdgeNodeFlowGenerator(
+            HG, 'um', 'mu', n_neighbors, n_traces, trace_len, pinsage_p.n_layers, data.neg_size)
+    test_collator = EdgeNodeFlowGenerator(
             HG, 'um', 'mu', n_neighbors, n_traces, trace_len, pinsage_p.n_layers, data.neg_size)
     train_loader = DataLoader(
             train_dataset,
@@ -116,6 +152,13 @@ def train():
             shuffle=False,
             num_workers=num_workers,
             collate_fn=valid_collator)
+    test_loader = DataLoader(
+            test_dataset,
+            batch_size=batch_size,
+            drop_last=False,
+            shuffle=False,
+            num_workers=num_workers,
+            collate_fn=test_collator)
 
     for _ in range(n_epoch):
         # train
@@ -158,8 +201,32 @@ def train():
                         hits_10s.append(hits_10)
                         ndcg_10s.append(ndcg_10)
 
-        hits_10 = np.mean(hits_10s)
-        ndcg_10 = np.mean(ndcg_10s)
-        print('HITS@10: %.6f NDCG@10: %.6f' % (hits_10, ndcg_10))
+        hits_10_valid = np.mean(hits_10s)
+        ndcg_10_valid = np.mean(ndcg_10s)
+
+        hits_10s = []
+        ndcg_10s = []
+        with torch.no_grad():
+            with tqdm.tqdm(test_loader) as t:
+                for U, I, I_neg, I_U, N_U, nf_i, nf_u, nf_neg in t:
+                    U = U.to(device)
+                    I = I.to(device)
+                    I_neg = I_neg.to(device)
+                    relevance = np.array([1])
+
+                    r, r_neg = model(I, U, I_neg, I_U, N_U, nf_i, nf_u, nf_neg)
+                    r_all = torch.cat([r[:, None], r_neg], 1).cpu().numpy()
+                    for _r_all in r_all:
+                        hits_10, ndcg_10 = evaluate(_r_all, 1, relevance)
+                        hits_10s.append(hits_10)
+                        ndcg_10s.append(ndcg_10)
+
+        hits_10_test = np.mean(hits_10s)
+        ndcg_10_test = np.mean(ndcg_10s)
+
+        torch.save(model.state_dict(), model_path)
+
+        print('HITS@10: %.6f NDCG@10: %.6f' % (hits_10_valid, ndcg_10_valid),
+              'Test HITS@10: %.6f NDCG@10: %.6f' % (hits_10_test, ndcg_10_test))
 
 train()
