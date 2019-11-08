@@ -11,6 +11,7 @@ import scipy.sparse as ssp
 import tqdm
 import pickle
 import argparse
+import sh
 from model.pinsage import PinSage
 from model.ranking import evaluate
 from model.movielens2 import MovieLens
@@ -42,6 +43,7 @@ parser.add_argument('--model-path', type=str, default='model.pt')
 parser.add_argument('--id-as-feature', action='store_true')
 parser.add_argument('--lr', type=float, default=3e-4)
 parser.add_argument('--num-workers', type=int, default=0)
+parser.add_argument('--pretrain', action='store_true')
 args = parser.parse_args()
 n_epoch = args.n_epoch
 iters_per_epoch = args.iters_per_epoch
@@ -61,6 +63,7 @@ model_path = args.model_path
 id_as_feature = args.id_as_feature
 lr = args.lr
 num_workers = args.num_workers
+pretrain = args.pretrain
 
 # Load the cached dataset object, or parse the raw MovieLens data
 if os.path.exists(data_pickle):
@@ -104,6 +107,34 @@ def cycle_iterator(loader):
         it = iter(loader)
         for elem in it:
             yield elem
+
+
+# pretrain with matrix factorization
+if pretrain:
+    import tempfile
+    tmpfile_train_data = tempfile.NamedTemporaryFile('w+')
+    tmpfile_valid_data = tempfile.NamedTemporaryFile('w+')
+    tmpfile_train_model = tmpfile_train_data.name + '.model'
+    tmpfile_train_item_model = tmpfile_train_data.name + '.item'
+
+    for u, m in zip(users_train, movies_train):
+        print(u, m, 1, file=tmpfile_train_data)
+    for u, m in zip(users_valid, movies_valid):
+        print(u, m, 1, file=tmpfile_valid_data)
+    mf_train = sh.Command('libmf/mf-train')
+    mf_train('-f', 10, '-p', tmpfile_valid_data.name,
+             '-k', feature_size, '-t', 6,
+             tmpfile_train_data.name, tmpfile_train_model)
+    with open(tmpfile_train_model) as f, open(tmpfile_train_item_model, 'w') as f_item:
+        for l in f:
+            if l.startswith('q'):
+                id_, not_nan, item_data = l[1:].split(' ', 2)
+                assert not_nan == 'T'
+                print(item_data, file=f_item)
+    item_emb = np.loadtxt(tmpfile_train_item_model, dtype=np.float32)
+    sh.rm(tmpfile_train_model, tmpfile_train_item_model)
+    item_emb = torch.FloatTensor(item_emb)
+    model.h.data[:] = item_emb
 
 
 def train():

@@ -6,6 +6,7 @@ import re
 import logging
 import operator
 import random
+import datetime
 from functools import partial
 from collections import OrderedDict
 
@@ -59,8 +60,8 @@ hyperparam_grid = {
         'num-workers': [2],
         'id-as-feature': [True],
         'n-negs': [40],
-        'n-neighbors': [2],
-        'n-layers': [0, 1],
+        'n-neighbors': [2, 4, 8, 16],
+        'n-layers': [0, 1, 2],
         'n-epoch': [40],
         'pretrain': [False, True]}
 
@@ -87,9 +88,10 @@ def hyperparam_iterator(grid, sel=None):
                 kwargs[k] = v
         yield args, kwargs
 
-script = 'main_fism.py'
-#script = 'main_knn.py'
-outfile = open('result.' + script + '.log', 'w')
+#script = 'main_fism.py'
+script = 'main_knn.py'
+date_str = datetime.datetime.now().strftime('%Y%m%d%H%M%S')
+outfile = open('result.' + script + '.log' + date_str, 'w')
 with mp.Pool(len(gpu_ids)) as p:
     result = p.imap(
             partial(
