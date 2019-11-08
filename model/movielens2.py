@@ -14,6 +14,7 @@ class MovieLens(object):
         valid = data['val'].tocoo()
         test = data['test'].tocoo()
         test_neg = data['test_negative']
+        train_original = data['train_original']
         neg_size = int(test_neg.sum(1).min())
         assert neg_size == int(test_neg.sum(1).max())
 
@@ -43,4 +44,4 @@ class MovieLens(object):
         self.user_latest_item = data['user_latest_item']
         self.num_users = num_users
         self.num_movies = num_movies
-        self.movie_count = train.sum(0).A.squeeze().astype('int64')
+        self.movie_count = train_original.sum(0).A.squeeze().astype('int64')

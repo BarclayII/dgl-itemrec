@@ -72,10 +72,6 @@ class MovieLens(object):
                     'timestamp': timestamp,
                     })
         ratings = pd.DataFrame(ratings)
-        movie_count = ratings['movie_id'].value_counts()
-        movie_count.name = 'movie_count'
-        self.movies = self.movies.join(movie_count, on='id')
-        ratings = ratings.join(movie_count, on='movie_id')
         self.ratings = ratings
 
         # determine test and validation set
@@ -92,7 +88,6 @@ class MovieLens(object):
         self.movies = self.movies[self.movies['id'].isin(self.ratings['movie_id'])]
         self.user_ids_invmap = {u: i for i, u in enumerate(self.users['id'])}
         self.movie_ids_invmap = {m: i for i, m in enumerate(self.movies['id'])}
-        self.movie_count = movie_count.reindex(self.movies['id'])
 
         self.ratings['user_idx'] = self.ratings['user_id'].apply(lambda x: self.user_ids_invmap[x])
         self.ratings['movie_idx'] = self.ratings['movie_id'].apply(lambda x: self.movie_ids_invmap[x])
@@ -168,6 +163,8 @@ class MovieLens(object):
                 zip(user_latest_item['user_idx'].values, user_latest_item['movie_idx'].values))
         self.user_latest_item = user_latest_item
 
-        self.movie_count = self.movies.sort_by_values('movie_idx')['movie_count'].values
+        ratings_not_test = ratings[~ratings['test_mask']]
+        movie_count = ratings_not_test.groupby('movie_idx').count().values
+        self.movie_count = movie_count
         self.num_users = num_users
         self.num_movies = num_movies

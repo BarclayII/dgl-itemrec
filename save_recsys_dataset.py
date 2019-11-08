@@ -14,10 +14,25 @@ train_table = pd.read_csv(
         sep='\t',
         header=None,
         names=['user_idx', 'movie_idx', 'rating', 'timestamp'])
-user_latest_item_indices = train_table.groupby('user_idx')['timestamp'].transform(pd.Series.max) == train_table['timestamp']
-user_latest_item = train_table[user_latest_item_indices]
-user_latest_item = dict(
-        zip(user_latest_item['user_idx'].values, user_latest_item['movie_idx'].values))
+
+def find_latest_item(train_table):
+    user_latest_item_indices = train_table.groupby('user_idx')['timestamp'].transform(pd.Series.max) == train_table['timestamp']
+    user_latest_item = train_table[user_latest_item_indices]
+    user_latest_item = dict(
+            zip(user_latest_item['user_idx'].values, user_latest_item['movie_idx'].values))
+    return user_latest_item
+
+val = r.URM_validation.tocoo()
+train = r.URM_train.tocoo()
+val_set = set((r, c) for r, c in zip(val.row, val.col))
+train_set = set((r, c) for r, c in zip(train.row, train.col))
+def in_validation(r):
+    return (r['user_idx'], r['movie_idx']) in val_set
+train_table['in_validation'] = train_table.apply(in_validation, axis=1)
+assert train_table['in_validation'].sum() == len(val_set)
+train_table_filtered = train_table[~train_table['in_validation']]
+
+user_latest_item = find_latest_item(train_table_filtered)
 
 with open('ml-1m.dataset', 'wb') as f:
     pickle.dump({
