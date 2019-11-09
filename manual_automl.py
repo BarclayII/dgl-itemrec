@@ -54,16 +54,16 @@ def work(hyperparams, script_name, regex, better):
 
 hyperparam_grid = {
         'batch-size': [1024],
-        'feature-size': [16],
-        'weight-decay': [1e-2],
+        'feature-size': [8, 16, 32, 64, 128, 256, 512],
+        'weight-decay': [1e-2, 1e-3, 1e-4],
         'lr': [1e-4],
         'num-workers': [2],
         'id-as-feature': [True],
-        'n-negs': [40],
-        'n-neighbors': [2, 4, 8, 16],
-        'n-layers': [0, 1, 2],
-        'n-epoch': [40],
-        'pretrain': [False, True]}
+        'n-negs': [4, 10, 40, 100],
+        'n-neighbors': [0],
+        'n-layers': [0],
+        'n-epoch': [2500],
+        'pretrain': [False]}
 
 def hyperparam_iterator(grid, sel=None):
     grid = OrderedDict(grid)
@@ -88,8 +88,8 @@ def hyperparam_iterator(grid, sel=None):
                 kwargs[k] = v
         yield args, kwargs
 
-#script = 'main_fism.py'
-script = 'main_knn.py'
+script = 'main_fism.py'
+#script = 'main_knn.py'
 date_str = datetime.datetime.now().strftime('%Y%m%d%H%M%S')
 outfile = open('result.' + script + '.log' + date_str, 'w')
 with mp.Pool(len(gpu_ids)) as p:
