@@ -46,7 +46,7 @@ class FISM(nn.Module):
         p_sum = torch.zeros_like(q)
         p_sum = p_sum.scatter_add(0, U_idx[:, None].expand_as(p), p)    # batch_size, n_dims
         p_ctx = p_sum - p_self
-        pq = (p_ctx * q).sum(1) / (N_U.float() ** self.alpha)
+        pq = (p_ctx * q).sum(1) / ((N_U.float() - 1).clamp(min=1) ** self.alpha)
         r = self.b_u[U] + self.b_i[I] + pq
 
         if I_neg is not None:

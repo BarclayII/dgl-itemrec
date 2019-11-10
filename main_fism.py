@@ -14,6 +14,7 @@ from model.model import FISM
 from model.pinsage import PinSage
 from model.ranking import evaluate
 from model.movielens2 import MovieLens
+from model.bookcrossing import BookCrossing
 from model.randomwalk_sampler import EdgeDataset, EdgeNodeFlowGenerator
 
 if torch.cuda.is_available():
@@ -32,6 +33,7 @@ parser.add_argument('--trace-len', type=int, default=3)
 parser.add_argument('--n-neighbors', type=int, default=3)
 parser.add_argument('--n-negs', type=int, default=4)
 parser.add_argument('--weight-decay', type=float, default=1e-5)
+parser.add_argument('--dataset', type=str, default='movielens')
 parser.add_argument('--data-pickle', type=str, default='ml-1m.pkl')
 parser.add_argument('--data-path', type=str, default='ml-1m.dataset')
 parser.add_argument('--model-path', type=str, default='model.pt')
@@ -40,6 +42,7 @@ parser.add_argument('--lr', type=float, default=3e-4)
 parser.add_argument('--num-workers', type=int, default=0)
 parser.add_argument('--alpha', type=float, default=0)
 parser.add_argument('--pretrain', action='store_true')
+parser.add_argument('--optim', type=str, default='Adam')
 args = parser.parse_args()
 n_epoch = args.n_epoch
 batch_size = args.batch_size
@@ -50,6 +53,7 @@ trace_len = args.trace_len
 n_neighbors = args.n_neighbors
 n_negs = args.n_negs
 weight_decay = args.weight_decay
+dataset = args.dataset
 data_pickle = args.data_pickle
 data_path = args.data_path
 model_path = args.model_path
@@ -58,13 +62,17 @@ lr = args.lr
 num_workers = args.num_workers
 alpha = args.alpha
 pretrain = args.pretrain
+optim = args.optim
 
 # Load the cached dataset object, or parse the raw MovieLens data
 if os.path.exists(data_pickle):
     with open(data_pickle, 'rb') as f:
         data = pickle.load(f)
 else:
-    data = MovieLens(data_path)
+    if dataset == 'movielens':
+        data = MovieLens(data_path)
+    elif dataset == 'bx':
+        data = BookCrossing(data_path)
     with open(data_pickle, 'wb') as f:
         pickle.dump(data, f)
 
@@ -95,7 +103,7 @@ pinsage_q = PinSage(
         trace_len, True, id_as_feature)
 model = FISM(HG, pinsage_p, pinsage_q, alpha).to(device)
 
-opt = torch.optim.Adam(model.parameters(), weight_decay=weight_decay, lr=lr)
+opt = getattr(torch.optim, optim)(model.parameters(), weight_decay=weight_decay, lr=lr)
 
 # pretrain with matrix factorization
 if pretrain:
@@ -158,6 +166,9 @@ def train():
             num_workers=num_workers,
             collate_fn=test_collator)
 
+    if os.path.exists(model_path):
+        model.load_state_dict(torch.load(model_path))
+
     for _ in range(n_epoch):
         # train
         sum_loss = 0
@@ -172,6 +183,8 @@ def train():
                 r_all = torch.cat([r, r_neg])
                 y = torch.cat([torch.ones_like(r), torch.zeros_like(r_neg)])
                 loss = F.binary_cross_entropy_with_logits(r_all, y)
+                #diff = 1 - (r.unsqueeze(1) - r_neg)
+                #loss = (diff * diff / 2).sum()
 
                 opt.zero_grad()
                 loss.backward()
