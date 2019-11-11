@@ -15,14 +15,16 @@ logger.setLevel(logging.INFO)
 
 def get_best_model_name(hyperparams, script_name):
     args, kwargs = hyperparams
-    kv = ['%s=%s' % (k, kwargs[k]) for k in sorted(kwargs.keys())]
+    args = [''.join(s.split('/')) for s in args]
+    script_name = ''.join(script_name.split('/'))
+    kv = ['%s=%s' % (k, ''.join(str(kwargs[k]).split('/'))) for k in sorted(kwargs.keys())]
     return '-'.join([script_name] + args + kv) + '.pt'
 
-gpu_ids = [0, 1, 2, 3]
+gpu_ids = [1, 2, 3]
 
 def work(hyperparams, script_name, regex, better):
     identity = mp.current_process()._identity
-    gpu_id = gpu_ids[(mp.current_process()._identity[0] - 1) if len(identity) > 0 else 0]
+    gpu_id = gpu_ids[(identity[0] - 1) if len(identity) > 0 else 0]
     newenv = os.environ.copy()
     newenv['CUDA_VISIBLE_DEVICES'] = str(gpu_id)
 
@@ -34,21 +36,23 @@ def work(hyperparams, script_name, regex, better):
     model_path = 'model.pt.' + str(os.getpid())
     best_model_path = 'best_' + model_path
     kwargs['model-path'] = model_path
+    sh.rm('-f', model_path)
 
+    n_epoch = 0
     for l in sh.python3('-u', script_name, *args, _env=newenv, _iter=True, **kwargs):
         m = re.search(regex, l)
         if m is None:
             continue
         metric = float(m.group(1))
-        logger.info('PID %d %s' % (os.getpid(), l.strip()))
-        if best is None or better(metric, best):
-            best = metric
+        if best is None or better(metric, best[0]):
+            best = metric, l, n_epoch
             sh.cp(model_path, best_model_path)
+        logger.info('PID %d %s Epoch %d: %s' % (os.getpid(), identity, n_epoch, l.strip()))
+        n_epoch += 1
 
-    logger.info('Finished %s on PID %d and GPU %d with best metric %.6f' % (hyperparams, os.getpid(), gpu_id, best))
+    logger.info('Finished %s on PID %d and GPU %d with best metric %s' % (hyperparams, os.getpid(), gpu_id, best))
     sh.cp(best_model_path, get_best_model_name(hyperparams, script_name))
     sh.rm(best_model_path)
-    sh.rm(model_path)
     return hyperparams, best
 
 
