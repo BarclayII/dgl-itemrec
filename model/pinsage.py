@@ -29,7 +29,8 @@ def get_embeddings(h, nodeset):
 def put_embeddings(h, nodeset, new_embeddings):
     n_nodes = nodeset.shape[0]
     n_features = h.shape[1]
-    return h.scatter(0, nodeset[:, None].expand(n_nodes, n_features), new_embeddings)
+    #return h.scatter(0, nodeset[:, None].expand(n_nodes, n_features), new_embeddings)
+    return h.scatter_add(0, nodeset[:, None].expand(n_nodes, n_features), new_embeddings)
 
 def safediv(a, b):
     b = torch.where(b == 0, torch.ones_like(b), b)

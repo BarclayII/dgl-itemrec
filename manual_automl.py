@@ -54,16 +54,23 @@ def work(hyperparams, script_name, regex, better):
 
 hyperparam_grid = {
         'batch-size': [1024],
-        'feature-size': [8, 16, 32, 64, 128, 256, 512],
-        'weight-decay': [1e-2, 1e-3, 1e-4],
-        'lr': [1e-4],
-        'num-workers': [2],
-        'id-as-feature': [True],
-        'n-negs': [4, 10, 40, 100],
-        'n-neighbors': [0],
-        'n-layers': [0],
-        'n-epoch': [2500],
-        'pretrain': [False]}
+        'feature-size': [16],
+        'weight-decay': [1e-3],
+        'lr': [1e-5],
+        'num-workers': [8],
+        'id-as-feature': [False],
+        'n-negs': [20],
+        'n-neighbors': [3, 10, 20],
+        'n-layers': [1, 2],
+        'n-epoch': [6],
+        'pretrain': [False],
+        'n-traces': [10, 50, 100],
+        'trace-len': [1, 2, 3],
+        'data-pickle': ['bx.pkl'],
+        'data-path': ['../bookcrossing'],
+        'dataset': ['bx'],
+        'alpha': [1],
+        }
 
 def hyperparam_iterator(grid, sel=None):
     grid = OrderedDict(grid)

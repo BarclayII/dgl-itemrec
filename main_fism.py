@@ -43,6 +43,7 @@ parser.add_argument('--num-workers', type=int, default=0)
 parser.add_argument('--alpha', type=float, default=0)
 parser.add_argument('--pretrain', action='store_true')
 parser.add_argument('--optim', type=str, default='Adam')
+parser.add_argument('--loss-fn', type=str, default='sqr')
 args = parser.parse_args()
 n_epoch = args.n_epoch
 batch_size = args.batch_size
@@ -63,6 +64,7 @@ num_workers = args.num_workers
 alpha = args.alpha
 pretrain = args.pretrain
 optim = args.optim
+loss_fn = args.loss_fn
 
 # Load the cached dataset object, or parse the raw MovieLens data
 if os.path.exists(data_pickle):
@@ -179,12 +181,15 @@ def train():
                 I_neg = I_neg.to(device)
 
                 r, r_neg = model(I, U, I_neg, I_U, N_U, nf_i, nf_u, nf_neg)
-                r_neg = r_neg.view(-1)
-                r_all = torch.cat([r, r_neg])
-                y = torch.cat([torch.ones_like(r), torch.zeros_like(r_neg)])
-                loss = F.binary_cross_entropy_with_logits(r_all, y)
-                #diff = 1 - (r.unsqueeze(1) - r_neg)
-                #loss = (diff * diff / 2).sum()
+
+                if loss_fn == 'bce':
+                    r_neg = r_neg.view(-1)
+                    r_all = torch.cat([r, r_neg])
+                    y = torch.cat([torch.ones_like(r), torch.zeros_like(r_neg)])
+                    loss = F.binary_cross_entropy_with_logits(r_all, y)
+                elif loss_fn == 'sqr':
+                    diff = 1 - (r.unsqueeze(1) - r_neg)
+                    loss = (diff * diff / 2).sum()
 
                 opt.zero_grad()
                 loss.backward()
