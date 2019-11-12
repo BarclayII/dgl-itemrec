@@ -15,6 +15,7 @@ from model.pinsage import PinSage
 from model.ranking import evaluate
 from model.movielens2 import MovieLens
 from model.bookcrossing import BookCrossing
+from model.yelp import Yelp2018
 from model.randomwalk_sampler import EdgeDataset, EdgeNodeFlowGenerator
 
 if torch.cuda.is_available():
@@ -75,6 +76,8 @@ else:
         data = MovieLens(data_path)
     elif dataset == 'bx':
         data = BookCrossing(data_path)
+    elif dataset == 'yelp':
+        data = Yelp2018(data_path)
     with open(data_pickle, 'wb') as f:
         pickle.dump(data, f)
 

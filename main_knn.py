@@ -12,7 +12,7 @@ import tqdm
 import pickle
 import argparse
 from sklearn.metrics.pairwise import cosine_similarity
-#import sh
+import sh
 from model.pinsage import PinSage
 from model.ranking import evaluate
 from model.movielens2 import MovieLens
@@ -101,9 +101,13 @@ HG.nodes['movie'].data.update(data.movie_data)
 HG.to(device)
 
 # Model and optimizer
-model = PinSage(
+model_p = PinSage(
         HG, 'movie', 'mu', 'um', feature_size, n_layers, n_neighbors, n_traces,
         trace_len, True, id_as_feature)
+model_q = PinSage(
+        HG, 'movie', 'mu', 'um', feature_size, n_layers, n_neighbors, n_traces,
+        trace_len, True, id_as_feature)
+model = nn.ModuleDict({'p': model_p, 'q': model_q})
 model = model.to(device)
 
 opt = torch.optim.Adam(model.parameters(), weight_decay=weight_decay, lr=lr)
@@ -119,29 +123,39 @@ def cycle_iterator(loader):
 # pretrain with matrix factorization
 if pretrain:
     import tempfile
-    tmpfile_train_data = tempfile.NamedTemporaryFile('w+')
-    tmpfile_valid_data = tempfile.NamedTemporaryFile('w+')
-    tmpfile_train_model = tmpfile_train_data.name + '.model'
-    tmpfile_train_item_model = tmpfile_train_data.name + '.item'
+    tmpfile_train_data = '/tmp/mm.txt'
+    tmpfile_train_model = tmpfile_train_data + '.model'
+    tmpfile_train_item_model = tmpfile_train_data + '.item'
+    if not os.path.exists(tmpfile_train_item_model + '.p'):
+        um = ssp.coo_matrix((np.ones(train_size), (users_train, movies_train)))
+        mm = (um.T * um).tocoo()
+        with open('/tmp/mm.txt', 'w') as f:
+            for i in tqdm.trange(len(mm.data)):
+                row = mm.row[i]
+                col = mm.col[i]
+                data = mm.data[i]
+                print(row, col, data, file=f)
 
-    for u, m in zip(users_train, movies_train):
-        print(u, m, 1, file=tmpfile_train_data)
-    for u, m in zip(users_valid, movies_valid):
-        print(u, m, 1, file=tmpfile_valid_data)
-    mf_train = sh.Command('libmf/mf-train')
-    mf_train('-f', 10, '-p', tmpfile_valid_data.name,
-             '-k', feature_size, '-t', 6,
-             tmpfile_train_data.name, tmpfile_train_model)
-    with open(tmpfile_train_model) as f, open(tmpfile_train_item_model, 'w') as f_item:
-        for l in f:
-            if l.startswith('q'):
-                id_, not_nan, item_data = l[1:].split(' ', 2)
-                assert not_nan == 'T'
-                print(item_data, file=f_item)
-    item_emb = np.loadtxt(tmpfile_train_item_model, dtype=np.float32)
-    sh.rm(tmpfile_train_model, tmpfile_train_item_model)
-    item_emb = torch.FloatTensor(item_emb)
-    model.h.data[:] = item_emb
+        mf_train = sh.Command('libmf/mf-train')
+        mf_train('-f', 0, '-k', feature_size, '-t', 500,
+                 tmpfile_train_data, tmpfile_train_model)
+
+        with open(tmpfile_train_model + '.p', 'w') as f_p, \
+             open(tmpfile_train_model + '.q', 'w') as f_q, \
+             open(tmpfile_train_model) as f:
+            for l in f:
+                if l.startswith('p'):
+                    id_, not_nan, item_data = l[1:].split(' ', 2)
+                    assert not_nan == 'T'
+                    print(item_data, file=f_p)
+                elif l.startswith('q'):
+                    id_, not_nan, item_data = l[1:].split(' ', 2)
+                    assert not_nan == 'T'
+                    print(item_data, file=f_p)
+    p = np.loadtxt(tmpfile_train_model + '.p', dtype=np.float32)
+    q = np.loadtxt(tmpfile_train_model + '.q', dtype=np.float32)
+    model['p'].h.data[:] = torch.FloatTensor(p)
+    model['q'].h.data[:] = torch.FloatTensor(q)
 
 
 def train():
@@ -149,11 +163,11 @@ def train():
     valid_dataset = NodeDataset(data.num_movies)
     test_dataset = NodeDataset(data.num_movies)
     train_collator = CooccurrenceNodeFlowGenerator(
-            HG, 'um', 'mu', n_neighbors, n_traces, trace_len, model.n_layers, n_negs)
+            HG, 'um', 'mu', n_neighbors, n_traces, trace_len, model['p'].n_layers, n_negs)
     valid_collator = NodeFlowGenerator(
-            HG, 'um', 'mu', n_neighbors, n_traces, trace_len, model.n_layers, n_negs)
+            HG, 'um', 'mu', n_neighbors, n_traces, trace_len, model['p'].n_layers, n_negs)
     test_collator = NodeFlowGenerator(
-            HG, 'um', 'mu', n_neighbors, n_traces, trace_len, model.n_layers, n_negs)
+            HG, 'um', 'mu', n_neighbors, n_traces, trace_len, model['p'].n_layers, n_negs)
     train_loader = DataLoader(
             train_dataset,
             batch_size=batch_size,
@@ -227,9 +241,9 @@ def train():
                 item = next(train_iter)
                 I_q, I_i, I_neg, nf_q, nf_i, nf_neg, c = to_device(item, device)
 
-                z_q = model(I_q, nf_q)
-                z_i = model(I_i, nf_i)
-                z_neg = model(I_neg.view(-1), nf_neg).view(I_neg.shape[0], n_negs, -1)
+                z_q = model['q'](I_q, nf_q)
+                z_i = model['p'](I_i, nf_i)
+                z_neg = model['p'](I_neg.view(-1), nf_neg).view(I_neg.shape[0], n_negs, -1)
 
                 score_pos = (z_q * z_i).sum(1)
                 score_neg = (z_q.unsqueeze(1) * z_neg).sum(2)
@@ -254,11 +268,14 @@ def train():
 
         with torch.no_grad():
             # evaluate - precompute item embeddings
-            z = []
+            z_p = []
+            z_q = []
             for item in valid_loader:
                 I, nf_i = to_device(item, device)
-                z.append(model(I, nf_i))
-            z = torch.cat(z)
+                z_p.append(model['p'](I, nf_i))
+                z_q.append(model['q'](I, nf_i))
+            z_p = torch.cat(z_p)
+            z_q = torch.cat(z_q)
 
         hits_10s = []
         ndcg_10s = []
@@ -271,8 +288,8 @@ def train():
             relevance = np.array([1])
 
             I = torch.cat([torch.LongTensor(I_pos), torch.LongTensor(I_neg)])
-            Z_q = z[I_q]
-            Z = z[I]
+            Z_q = z_q[I_q]
+            Z = z_p[I]
             score = (Z_q[None, :] * Z).sum(1).cpu().numpy()
 
             hits_10, ndcg_10 = evaluate(score, 1, relevance)
@@ -292,8 +309,8 @@ def train():
             relevance = np.array([1])
 
             I = torch.cat([torch.LongTensor(I_pos), torch.LongTensor(I_neg)])
-            Z_q = z[I_q]
-            Z = z[I]
+            Z_q = z_q[I_q]
+            Z = z_p[I]
             score = (Z_q[None, :] * Z).sum(1).cpu().numpy()
 
             hits_10, ndcg_10 = evaluate(score, 1, relevance)
