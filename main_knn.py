@@ -125,8 +125,7 @@ if pretrain:
     import tempfile
     tmpfile_train_data = '/tmp/mm.txt'
     tmpfile_train_model = tmpfile_train_data + '.model'
-    tmpfile_train_item_model = tmpfile_train_data + '.item'
-    if not os.path.exists(tmpfile_train_item_model + '.p'):
+    if not os.path.exists(tmpfile_train_model + '.p'):
         um = ssp.coo_matrix((np.ones(train_size), (users_train, movies_train)))
         mm = (um.T * um).tocoo()
         with open('/tmp/mm.txt', 'w') as f:
@@ -146,12 +145,14 @@ if pretrain:
             for l in f:
                 if l.startswith('p'):
                     id_, not_nan, item_data = l[1:].split(' ', 2)
-                    assert not_nan == 'T'
+                    if not_nan == 'F':
+                        print('F in', id_)
                     print(item_data, file=f_p)
                 elif l.startswith('q'):
                     id_, not_nan, item_data = l[1:].split(' ', 2)
-                    assert not_nan == 'T'
-                    print(item_data, file=f_p)
+                    if not_nan == 'F':
+                        print('F in', id_)
+                    print(item_data, file=f_q)
     p = np.loadtxt(tmpfile_train_model + '.p', dtype=np.float32)
     q = np.loadtxt(tmpfile_train_model + '.q', dtype=np.float32)
     model['p'].h.data[:] = torch.FloatTensor(p)
