@@ -6,7 +6,7 @@ import numpy as np
 from . import randomwalk
 
 def create_embeddings(n_nodes, n_features):
-    return nn.Parameter(torch.randn(n_nodes, n_features) * 0.01)
+    return nn.Parameter(torch.randn(n_nodes, n_features) * 0.1)
 
 def mix_embeddings(h, ndata, emb, proj):
     '''Combine node-specific trainable embedding ``h`` with categorical inputs

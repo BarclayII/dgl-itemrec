@@ -11,10 +11,12 @@ import scipy.sparse as ssp
 import tqdm
 import pickle
 import argparse
-import sh
+from sklearn.metrics.pairwise import cosine_similarity
+#import sh
 from model.pinsage import PinSage
 from model.ranking import evaluate
 from model.movielens2 import MovieLens
+from model.bookcrossing import BookCrossing
 from model.randomwalk_sampler import CooccurrenceDataset, CooccurrenceNodeFlowGenerator
 from model.randomwalk_sampler import NodeDataset, NodeFlowGenerator, to_device
 
@@ -37,6 +39,7 @@ parser.add_argument('--n-negs', type=int, default=4)
 parser.add_argument('--weight-decay', type=float, default=1e-5)
 parser.add_argument('--margin', type=float, default=1.)
 parser.add_argument('--max-c', type=float, default=np.inf)
+parser.add_argument('--dataset', type=str, default='movielens')
 parser.add_argument('--data-pickle', type=str, default='ml-1m.pkl')
 parser.add_argument('--data-path', type=str, default='ml-1m.dataset')
 parser.add_argument('--model-path', type=str, default='model.pt')
@@ -57,6 +60,7 @@ n_negs = args.n_negs
 weight_decay = args.weight_decay
 margin = args.margin
 max_c = args.max_c
+dataset = args.dataset
 data_pickle = args.data_pickle
 data_path = args.data_path
 model_path = args.model_path
@@ -70,7 +74,10 @@ if os.path.exists(data_pickle):
     with open(data_pickle, 'rb') as f:
         data = pickle.load(f)
 else:
-    data = MovieLens(data_path)
+    if dataset == 'movielens':
+        data = MovieLens(data_path)
+    elif dataset == 'bx':
+        data = BookCrossing(data_path)
     with open(data_pickle, 'wb') as f:
         pickle.dump(data, f)
 
@@ -171,6 +178,47 @@ def train():
     train_iter = cycle_iterator(train_loader)
     best_metric = None
 
+    baseline_hits_10s = []
+    baseline_ndcg_10s = []
+    baseline_score_all = data.movie_count
+
+    for u, i in zip(users_test, movies_test):
+        I_q = user_latest_item[u]
+        I_pos = np.array([i])
+        I_neg = data.neg_test[u]
+        relevance = np.array([1])
+
+        I = torch.cat([torch.LongTensor(I_pos), torch.LongTensor(I_neg)])
+        baseline_score = baseline_score_all[I.numpy()]
+        hits_10, ndcg_10 = evaluate(baseline_score, 1, relevance)
+        baseline_hits_10s.append(hits_10)
+        baseline_ndcg_10s.append(ndcg_10)
+
+    print('HITS@10 (Most popular):', np.mean(baseline_hits_10s),
+          'NDCG@10 (Most popular):', np.mean(baseline_ndcg_10s))
+
+    um = np.zeros((data.num_users, data.num_movies))
+    um[users_train, movies_train] = 1
+    um[users_valid, movies_valid] = 1
+    mu = um.T
+    m_dist = cosine_similarity(mu)
+    baseline_hits_10s = []
+    baseline_ndcg_10s = []
+    for u, i in zip(users_test, movies_test):
+        I_q = user_latest_item[u]
+        I_pos = np.array([i])
+        I_neg = data.neg_test[u]
+        relevance = np.array([1])
+
+        I = torch.cat([torch.LongTensor(I_pos), torch.LongTensor(I_neg)])
+        baseline_score = m_dist[I_q][I]
+        hits_10, ndcg_10 = evaluate(baseline_score, 1, relevance)
+        baseline_hits_10s.append(hits_10)
+        baseline_ndcg_10s.append(ndcg_10)
+
+    print('HITS@10 (Item-KNN):', np.mean(baseline_hits_10s),
+          'NDCG@10 (Item-KNN):', np.mean(baseline_ndcg_10s))
+
     for _ in range(n_epoch):
         # train
         sum_loss = 0
@@ -191,13 +239,18 @@ def train():
 
                 opt.zero_grad()
                 loss.backward()
+                grad_norm = 0
                 for name, param in model.named_parameters():
                     d_param = param.grad
                     assert not torch.isnan(d_param).any().item()
+                    grad_norm += d_param.norm().item()
                 opt.step()
 
                 sum_loss += loss.item()
-                t.set_postfix({'loss': '%.06f' % loss.item(), 'avg': '%.06f' % (sum_loss / (it + 1))})
+                t.set_postfix({
+                    'loss': '%.06f' % loss.item(),
+                    'avg': '%.06f' % (sum_loss / (it + 1)),
+                    'gradnorm': '%.06f' % grad_norm})
 
         with torch.no_grad():
             # evaluate - precompute item embeddings
@@ -231,10 +284,6 @@ def train():
 
         hits_10s = []
         ndcg_10s = []
-        baseline_hits_10s = []
-        baseline_ndcg_10s = []
-        baseline_score_all = data.movie_count
-
         # evaluate one user-item interaction at a time
         for u, i in zip(users_test, movies_test):
             I_q = user_latest_item[u]
@@ -246,27 +295,18 @@ def train():
             Z_q = z[I_q]
             Z = z[I]
             score = (Z_q[None, :] * Z).sum(1).cpu().numpy()
-            baseline_score = baseline_score_all[I.numpy()]
 
             hits_10, ndcg_10 = evaluate(score, 1, relevance)
             hits_10s.append(hits_10)
             ndcg_10s.append(ndcg_10)
 
-            hits_10, ndcg_10 = evaluate(baseline_score, 1, relevance)
-            baseline_hits_10s.append(hits_10)
-            baseline_ndcg_10s.append(ndcg_10)
-
         hits_10_test = np.mean(hits_10s)
         ndcg_10_test = np.mean(ndcg_10s)
-        baseline_hits_10_test = np.mean(baseline_hits_10s)
-        baseline_ndcg_10_test = np.mean(baseline_ndcg_10s)
 
         torch.save(model.state_dict(), model_path)
 
         print('HITS@10:', hits_10_valid, 'NDCG@10:', ndcg_10_valid,
               'HITS@10 (Test):', hits_10_test, 'NDCG@10 (Test):', ndcg_10_test,
-              'HITS@10 (Most popular):', baseline_hits_10_test,
-              'NDCG@10 (Most popular):', baseline_ndcg_10_test,
               )
 
 train()

@@ -56,6 +56,8 @@ def work(hyperparams, script_name, regex, better):
     return hyperparams, best
 
 
+# This is the hyperparameter grid.
+# Each combination is passed into the script file as shell arguments.
 hyperparam_grid = {
         'batch-size': [1024],
         'feature-size': [16],
@@ -70,10 +72,10 @@ hyperparam_grid = {
         'pretrain': [False],
         'n-traces': [10, 50, 100],
         'trace-len': [1, 2, 3],
-        'data-pickle': ['bx.pkl'],
-        'data-path': ['../bookcrossing'],
-        'dataset': ['bx'],
-        'alpha': [1],
+        #'data-pickle': ['bx.pkl'],
+        #'data-path': ['../bookcrossing'],
+        #'dataset': ['bx'],
+        #'alpha': [1],
         }
 
 def hyperparam_iterator(grid, sel=None):
@@ -99,10 +101,10 @@ def hyperparam_iterator(grid, sel=None):
                 kwargs[k] = v
         yield args, kwargs
 
-script = 'main_fism.py'
-#script = 'main_knn.py'
+#script = 'main_fism.py'
+script = 'main_knn.py'
 date_str = datetime.datetime.now().strftime('%Y%m%d%H%M%S')
-outfile = open('result.' + script + '.log' + date_str, 'w')
+outfile = open('result.' + script + '.log.' + date_str, 'w')
 with mp.Pool(len(gpu_ids)) as p:
     result = p.imap(
             partial(
