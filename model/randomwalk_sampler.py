@@ -90,13 +90,20 @@ class CooccurrenceDataset(Dataset):
 
 
 class CooccurrenceNodeFlowGenerator(BaseNodeFlowGenerator):
-    
+    def __init__(self, *args, movie_freq=None):
+        super().__init__(*args)
+        self.movie_freq = movie_freq
+
     def __call__(self, batch):
         I_q, I_i, c = zip(*batch)
         I_q = torch.LongTensor(I_q)
         I_i = torch.LongTensor(I_i)
         c = torch.FloatTensor(c)
-        I_neg = torch.randint(0, self.num_movies, (len(I_q), self.n_negs))
+        if self.movie_freq is None:
+            I_neg = torch.randint(0, self.num_movies, (len(I_q), self.n_negs))
+        else:
+            I_neg = torch.multinomial(self.movie_freq, len(I_q) * self.n_negs, replacement=True)
+            I_neg = I_neg.view(-1, self.n_negs)
 
         nf_q = self.generate(I_q)
         nf_i = self.generate(I_i)

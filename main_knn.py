@@ -47,6 +47,7 @@ parser.add_argument('--id-as-feature', action='store_true')
 parser.add_argument('--lr', type=float, default=3e-4)
 parser.add_argument('--num-workers', type=int, default=0)
 parser.add_argument('--pretrain', action='store_true')
+parser.add_argument('--neg-by-freq', action='store_true')
 args = parser.parse_args()
 n_epoch = args.n_epoch
 iters_per_epoch = args.iters_per_epoch
@@ -68,6 +69,7 @@ id_as_feature = args.id_as_feature
 lr = args.lr
 num_workers = args.num_workers
 pretrain = args.pretrain
+neg_by_freq = args.neg_by_freq
 
 # Load the cached dataset object, or parse the raw MovieLens data
 if os.path.exists(data_pickle):
@@ -157,11 +159,20 @@ if pretrain:
 
 
 def train():
+    # count number of occurrences for each movie
+    if neg_by_freq:
+        um = ssp.coo_matrix((np.ones_like(users_train), (users_train, movies_train)))
+        movie_count = torch.FloatTensor(um.sum(0).A.squeeze())
+    else:
+        movie_count = None
+
     train_dataset = CooccurrenceDataset(users_train, movies_train)
     valid_dataset = NodeDataset(data.num_movies)
     test_dataset = NodeDataset(data.num_movies)
     train_collator = CooccurrenceNodeFlowGenerator(
-            HG, 'um', 'mu', n_neighbors, n_traces, trace_len, model['p'].n_layers, n_negs)
+            HG, 'um', 'mu', n_neighbors, n_traces, trace_len, model['p'].n_layers, n_negs,
+            movie_freq=movie_count
+            )
     valid_collator = NodeFlowGenerator(
             HG, 'um', 'mu', n_neighbors, n_traces, trace_len, model['p'].n_layers, n_negs)
     test_collator = NodeFlowGenerator(
