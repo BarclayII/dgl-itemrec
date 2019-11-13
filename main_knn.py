@@ -123,36 +123,33 @@ def cycle_iterator(loader):
 # pretrain with matrix factorization
 if pretrain:
     import tempfile
-    tmpfile_train_data = '/tmp/mm.txt'
-    tmpfile_train_model = tmpfile_train_data + '.model'
-    if not os.path.exists(tmpfile_train_model + '.p'):
-        um = ssp.coo_matrix((np.ones(train_size), (users_train, movies_train)))
-        mm = (um.T * um).tocoo()
-        with open('/tmp/mm.txt', 'w') as f:
-            for i in tqdm.trange(len(mm.data)):
-                row = mm.row[i]
-                col = mm.col[i]
-                data = mm.data[i]
-                print(row, col, data, file=f)
+    tmpfile_train_data = tempfile.NamedTemporaryFile('w+')
+    tmpfile_train_model = tmpfile_train_data.name + '.model'
 
-        mf_train = sh.Command('libmf/mf-train')
-        mf_train('-f', 0, '-k', feature_size, '-t', 500,
-                 tmpfile_train_data, tmpfile_train_model)
+    um = ssp.coo_matrix((np.ones(train_size), (users_train, movies_train)))
+    mm = (um.T * um).tocoo()
+    for i in tqdm.trange(len(mm.data)):
+        print(mm.row[i], mm.col[i], mm.data[i], file=tmpfile_train_data)
 
-        with open(tmpfile_train_model + '.p', 'w') as f_p, \
-             open(tmpfile_train_model + '.q', 'w') as f_q, \
-             open(tmpfile_train_model) as f:
-            for l in f:
-                if l.startswith('p'):
-                    id_, not_nan, item_data = l[1:].split(' ', 2)
-                    if not_nan == 'F':
-                        print('F in', id_)
-                    print(item_data, file=f_p)
-                elif l.startswith('q'):
-                    id_, not_nan, item_data = l[1:].split(' ', 2)
-                    if not_nan == 'F':
-                        print('F in', id_)
-                    print(item_data, file=f_q)
+    mf_train = sh.Command('libmf/mf-train')
+    mf_train('-f', 0, '-k', feature_size, '-t', 500,
+             tmpfile_train_data, tmpfile_train_model)
+
+    with open(tmpfile_train_model + '.p', 'w') as f_p, \
+         open(tmpfile_train_model + '.q', 'w') as f_q, \
+         open(tmpfile_train_model) as f:
+        for l in f:
+            if l.startswith('p'):
+                id_, not_nan, item_data = l[1:].split(' ', 2)
+                if not_nan == 'F':
+                    print('F in', id_)
+                print(item_data, file=f_p)
+            elif l.startswith('q'):
+                id_, not_nan, item_data = l[1:].split(' ', 2)
+                if not_nan == 'F':
+                    print('F in', id_)
+                print(item_data, file=f_q)
+
     p = np.loadtxt(tmpfile_train_model + '.p', dtype=np.float32)
     q = np.loadtxt(tmpfile_train_model + '.q', dtype=np.float32)
     model['p'].h.data[:] = torch.FloatTensor(p)

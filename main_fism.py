@@ -10,13 +10,15 @@ import os
 import pickle
 import argparse
 import sh
+from sklearn.metrics.pairwise import cosine_similarity
 from model.model import FISM
 from model.pinsage import PinSage
 from model.ranking import evaluate
 from model.movielens2 import MovieLens
 from model.bookcrossing import BookCrossing
 from model.yelp import Yelp2018
-from model.randomwalk_sampler import EdgeDataset, EdgeNodeFlowGenerator
+from model.randomwalk_sampler import EdgeDataset, EdgeNodeFlowGenerator, \
+        NodeDataset, NodeFlowGenerator, to_device
 
 if torch.cuda.is_available():
     device = torch.device('cuda:0')
@@ -82,6 +84,7 @@ else:
         pickle.dump(data, f)
 
 # Fetch the interaction and movie data as numpy arrays
+user_latest_item = data.user_latest_item
 users_train = data.users_train
 movies_train = data.movies_train
 users_valid = data.users_valid
@@ -143,12 +146,15 @@ def train():
     train_dataset = EdgeDataset(users_train, movies_train, data.neg_train, n_negs)
     valid_dataset = EdgeDataset(users_valid, movies_valid, data.neg_valid, data.neg_size)
     test_dataset = EdgeDataset(users_test, movies_test, data.neg_test, data.neg_size)
+    node_dataset = NodeDataset(data.num_movies)
     train_collator = EdgeNodeFlowGenerator(
             HG, 'um', 'mu', n_neighbors, n_traces, trace_len, pinsage_p.n_layers, n_negs)
     valid_collator = EdgeNodeFlowGenerator(
             HG, 'um', 'mu', n_neighbors, n_traces, trace_len, pinsage_p.n_layers, data.neg_size)
     test_collator = EdgeNodeFlowGenerator(
             HG, 'um', 'mu', n_neighbors, n_traces, trace_len, pinsage_p.n_layers, data.neg_size)
+    node_collator = NodeFlowGenerator(
+            HG, 'um', 'mu', n_neighbors, n_traces, trace_len, pinsage_p.n_layers, n_negs)
     train_loader = DataLoader(
             train_dataset,
             batch_size=batch_size,
@@ -170,6 +176,13 @@ def train():
             shuffle=False,
             num_workers=num_workers,
             collate_fn=test_collator)
+    node_loader = DataLoader(
+            node_dataset,
+            batch_size=batch_size,
+            drop_last=False,
+            shuffle=False,
+            num_workers=num_workers,
+            collate_fn=node_collator)
 
     if os.path.exists(model_path):
         model.load_state_dict(torch.load(model_path))
@@ -247,5 +260,61 @@ def train():
 
         print('HITS@10: %.6f NDCG@10: %.6f' % (hits_10_valid, ndcg_10_valid),
               'Test HITS@10: %.6f NDCG@10: %.6f' % (hits_10_test, ndcg_10_test))
+
+        if user_latest_item is None:
+            continue
+
+        # find most similar item embedding
+        with torch.no_grad():
+            # evaluate - precompute item embeddings
+            z_p = []
+            z_q = []
+            for item in node_loader:
+                I, nf_i = to_device(item, device)
+                z_p.append(pinsage_p(I, nf_i))
+                z_q.append(pinsage_q(I, nf_i))
+            z_p = torch.cat(z_p)
+            z_q = torch.cat(z_q)
+
+        z_q = z_q.cpu().numpy()
+        m_dist = cosine_similarity(z_q)
+
+        hits_10s = []
+        ndcg_10s = []
+        for u, i in zip(users_valid, movies_valid):
+            I_q = user_latest_item[u]
+            I_pos = np.array([i])
+            I_neg = data.neg_valid[u]
+            relevance = np.array([1])
+
+            I = torch.cat([torch.LongTensor(I_pos), torch.LongTensor(I_neg)])
+            score = m_dist[I_q][I]
+            hits_10, ndcg_10 = evaluate(score, 1, relevance)
+            hits_10s.append(hits_10)
+            ndcg_10s.append(ndcg_10)
+
+        hits_10_knn_valid = np.mean(hits_10s)
+        ndcg_10_knn_valid = np.mean(ndcg_10s)
+
+        hits_10s = []
+        ndcg_10s = []
+        for u, i in zip(users_test, movies_test):
+            I_q = user_latest_item[u]
+            I_pos = np.array([i])
+            I_neg = data.neg_test[u]
+            relevance = np.array([1])
+
+            I = torch.cat([torch.LongTensor(I_pos), torch.LongTensor(I_neg)])
+            score = m_dist[I_q][I]
+            hits_10, ndcg_10 = evaluate(score, 1, relevance)
+            hits_10s.append(hits_10)
+            ndcg_10s.append(ndcg_10)
+
+        hits_10_knn_test = np.mean(hits_10s)
+        ndcg_10_knn_test = np.mean(ndcg_10s)
+
+        print('NN-HITS@10: %.6f NN-NDCG@10: %.6f' % (hits_10_knn_valid, ndcg_10_knn_valid),
+              'Test NN-HITS@10: %.6f NN-NDCG@10: %.6f' % (hits_10_knn_test, ndcg_10_knn_test))
+
 
 train()

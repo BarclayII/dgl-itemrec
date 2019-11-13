@@ -20,7 +20,7 @@ def get_best_model_name(hyperparams, script_name):
     kv = ['%s=%s' % (k, ''.join(str(kwargs[k]).split('/'))) for k in sorted(kwargs.keys())]
     return '-'.join([script_name] + args + kv) + '.pt'
 
-gpu_ids = [1, 2, 3]
+gpu_ids = [0, 1, 2, 3]
 
 def work(hyperparams, script_name, regex, better):
     identity = mp.current_process()._identity
@@ -60,18 +60,18 @@ def work(hyperparams, script_name, regex, better):
 # Each combination is passed into the script file as shell arguments.
 hyperparam_grid = {
         'batch-size': [1024],
-        'feature-size': [16],
-        'weight-decay': [1e-3],
-        'lr': [1e-5],
+        'feature-size': [16, 64, 256, 1024],
+        'weight-decay': [1e-2, 1e-3, 1e-4, 0],
+        'lr': [1e-3, 1e-2],
         'num-workers': [8],
-        'id-as-feature': [False],
+        'id-as-feature': [True],
         'n-negs': [20],
-        'n-neighbors': [3, 10, 20],
-        'n-layers': [1, 2],
-        'n-epoch': [6],
+        'n-neighbors': [3],
+        'n-layers': [0],
+        'n-epoch': [20],
         'pretrain': [False],
-        'n-traces': [10, 50, 100],
-        'trace-len': [1, 2, 3],
+        'n-traces': [10],
+        'trace-len': [3],
         #'data-pickle': ['bx.pkl'],
         #'data-path': ['../bookcrossing'],
         #'dataset': ['bx'],
