@@ -20,7 +20,42 @@ def get_best_model_name(hyperparams, script_name):
     kv = ['%s=%s' % (k, ''.join(str(kwargs[k]).split('/'))) for k in sorted(kwargs.keys())]
     return '-'.join([script_name] + args + kv) + '.pt'
 
+# The GPU IDs to run on.  The same number of workers would spawn, one for each GPU ID specified.
 gpu_ids = [0, 1, 2, 3]
+
+# The script to run
+#script = 'main_fism.py'
+script = 'main_knn.py'
+
+# Number of combinations to try, or None for complete grid search
+n_combinations = None
+
+date_str = datetime.datetime.now().strftime('%Y%m%d%H%M%S')
+# file that stores the metric output
+outfile_path = 'result.' + scripy + '.log.' + date_str
+
+# This is the hyperparameter grid.
+# Each combination is passed into the script file as shell arguments.
+hyperparam_grid = {
+        'batch-size': [1024],
+        'feature-size': [64, 256, 1024],
+        'weight-decay': [1e-3, 1e-4, 0],
+        'lr': [1e-2],
+        'num-workers': [8],
+        'id-as-feature': [True],
+        'n-negs': [20],
+        'n-neighbors': [3],
+        'n-layers': [0],
+        'n-epoch': [500],
+        'pretrain': [False],
+        'n-traces': [10],
+        'trace-len': [3],
+        'neg-by-freq': [True],
+        #'data-pickle': ['bx.pkl'],
+        #'data-path': ['../bookcrossing'],
+        #'dataset': ['bx'],
+        #'alpha': [1],
+        }
 
 def work(hyperparams, script_name, regex, better):
     identity = mp.current_process()._identity
@@ -56,39 +91,17 @@ def work(hyperparams, script_name, regex, better):
     return hyperparams, best
 
 
-# This is the hyperparameter grid.
-# Each combination is passed into the script file as shell arguments.
-hyperparam_grid = {
-        'batch-size': [1024],
-        'feature-size': [16, 64, 256, 1024],
-        'weight-decay': [1e-2, 1e-3, 1e-4, 0],
-        'lr': [1e-3, 1e-2],
-        'num-workers': [8],
-        'id-as-feature': [True],
-        'n-negs': [20],
-        'n-neighbors': [3],
-        'n-layers': [0],
-        'n-epoch': [20],
-        'pretrain': [False],
-        'n-traces': [10],
-        'trace-len': [3],
-        #'data-pickle': ['bx.pkl'],
-        #'data-path': ['../bookcrossing'],
-        #'dataset': ['bx'],
-        #'alpha': [1],
-        }
-
-def hyperparam_iterator(grid, sel=None):
+def hyperparam_iterator(grid, n_combinations=None):
     grid = OrderedDict(grid)
     keys = list(grid.keys())
     values = list(grid.values())
 
-    if sel is None:
+    if n_combinations is None:
         product_iter = itertools.product(*values)
     else:
         product_iter = list(itertools.product(values))
         random.shuffle(product_iter)
-        product_iter = product_iter[:sel]
+        product_iter = product_iter[:n_combinations]
 
     for config in product_iter:
         args = []
@@ -101,10 +114,7 @@ def hyperparam_iterator(grid, sel=None):
                 kwargs[k] = v
         yield args, kwargs
 
-#script = 'main_fism.py'
-script = 'main_knn.py'
-date_str = datetime.datetime.now().strftime('%Y%m%d%H%M%S')
-outfile = open('result.' + script + '.log.' + date_str, 'w')
+outfile = open(outfile_path, 'w')
 with mp.Pool(len(gpu_ids)) as p:
     result = p.imap(
             partial(
@@ -112,8 +122,9 @@ with mp.Pool(len(gpu_ids)) as p:
                 script_name=script,
                 regex=r'HITS@10: ([0-9.]+)',
                 better=operator.gt),
-            hyperparam_iterator(hyperparam_grid))
+            hyperparam_iterator(hyperparam_grid, n_combinations))
     print(list(result), file=outfile)
-#for hp in hyperparam_iterator(hyperparam_grid):
-#    print(work(hp, script, r'HITS@10: ([0-9.]+)', operator.gt))
 outfile.close()
+# One can read the result by the following:
+# with open(outfile_path) as f:
+#     result = eval(f.read())
