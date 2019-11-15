@@ -32,29 +32,29 @@ n_combinations = None
 
 date_str = datetime.datetime.now().strftime('%Y%m%d%H%M%S')
 # file that stores the metric output
-outfile_path = 'result.' + scripy + '.log.' + date_str
+outfile_path = 'result.' + script + '.log.' + date_str
 
 # This is the hyperparameter grid.
 # Each combination is passed into the script file as shell arguments.
 hyperparam_grid = {
         'batch-size': [1024],
-        'feature-size': [64, 256, 1024],
+        'feature-size': [16, 64, 256],
         'weight-decay': [1e-3, 1e-4, 0],
-        'lr': [1e-2],
+        'lr': [1e-3, 1e-4],
         'num-workers': [8],
         'id-as-feature': [True],
-        'n-negs': [20],
+        'n-negs': [5, 10, 20],
         'n-neighbors': [3],
         'n-layers': [0],
-        'n-epoch': [500],
+        'n-epoch': [40],
         'pretrain': [False],
         'n-traces': [10],
         'trace-len': [3],
-        'neg-by-freq': [True],
-        #'data-pickle': ['bx.pkl'],
-        #'data-path': ['../bookcrossing'],
-        #'dataset': ['bx'],
-        #'alpha': [1],
+        #'neg-by-freq': [True],
+        'data-pickle': ['bx.pkl'],
+        'data-path': ['../bookcrossing'],
+        'dataset': ['bx'],
+        'alpha': [1],
         }
 
 def work(hyperparams, script_name, regex, better):
