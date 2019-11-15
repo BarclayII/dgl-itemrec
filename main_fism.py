@@ -149,7 +149,6 @@ if pretrain:
     pinsage_q.h.data[:] = item_emb
 
 
-@profile
 def train():
     # count number of occurrences for each movie
     if neg_by_freq:
