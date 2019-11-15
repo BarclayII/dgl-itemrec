@@ -314,29 +314,41 @@ def train():
 
         hits_10s = []
         ndcg_10s = []
+        hits_10s_test_all = []
+        ndcg_10s_test_all = []
         # evaluate one user-item interaction at a time
         for u, i in zip(users_test, movies_test):
             I_q = user_latest_item[u]
             I_pos = np.array([i])
             I_neg = data.neg_test[u]
+            I_neg_all = data.neg_test_complete[u]
             relevance = np.array([1])
 
             I = torch.cat([torch.LongTensor(I_pos), torch.LongTensor(I_neg)])
+            I_all = torch.cat([torch.LongTensor(I_pos), torch.LongTensor(I_neg_all)])
             Z_q = z_q[I_q]
             Z = z_p[I]
+            Z_all = z_p[I_all]
             score = (Z_q[None, :] * Z).sum(1).cpu().numpy()
+            score_all = (Z_q[None, :] * Z_all).sum(1).cpu().numpy()
 
             hits_10, ndcg_10 = evaluate(score, 1, relevance)
+            hits_10_all, ndcg_10_all = evaluate(score_all, 1, relevance)
             hits_10s.append(hits_10)
             ndcg_10s.append(ndcg_10)
+            hits_10s_test_all.append(hits_10_all)
+            ndcg_10s_test_all.append(ndcg_10_all)
 
         hits_10_test = np.mean(hits_10s)
         ndcg_10_test = np.mean(ndcg_10s)
+        hits_10_test_all = np.mean(hits_10s_test_all)
+        ndcg_10_test_all = np.mean(ndcg_10s_test_all)
 
         torch.save(model.state_dict(), model_path)
 
         print('HITS@10:', hits_10_valid, 'NDCG@10:', ndcg_10_valid,
               'HITS@10 (Test):', hits_10_test, 'NDCG@10 (Test):', ndcg_10_test,
+              'HITS@10 (Test All):', hits_10_test_all, 'NDCG@10 (Test All):', ndcg_10_test_all,
               )
 
 train()

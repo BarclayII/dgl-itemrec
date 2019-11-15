@@ -4,6 +4,7 @@ import torch.nn as nn
 import torch.nn.functional as F
 from torch.utils.data import DataLoader
 import numpy as np
+import scipy.sparse as ssp
 import scipy.stats
 import tqdm
 import os
@@ -47,6 +48,9 @@ parser.add_argument('--alpha', type=float, default=0)
 parser.add_argument('--pretrain', action='store_true')
 parser.add_argument('--optim', type=str, default='Adam')
 parser.add_argument('--loss-fn', type=str, default='sqr')
+parser.add_argument('--neg-by-freq', action='store_true')
+parser.add_argument('--neg-freq-min', type=float, default=1)
+parser.add_argument('--neg-freq-max', type=float, default=np.inf)
 args = parser.parse_args()
 n_epoch = args.n_epoch
 batch_size = args.batch_size
@@ -68,6 +72,9 @@ alpha = args.alpha
 pretrain = args.pretrain
 optim = args.optim
 loss_fn = args.loss_fn
+neg_by_freq = args.neg_by_freq
+neg_freq_max = args.neg_freq_max
+neg_freq_min = args.neg_freq_min
 
 # Load the cached dataset object, or parse the raw MovieLens data
 if os.path.exists(data_pickle):
@@ -142,17 +149,21 @@ if pretrain:
     pinsage_q.h.data[:] = item_emb
 
 
+@profile
 def train():
-    train_dataset = EdgeDataset(users_train, movies_train, data.neg_train, n_negs)
-    valid_dataset = EdgeDataset(users_valid, movies_valid, data.neg_valid, data.neg_size)
-    test_dataset = EdgeDataset(users_test, movies_test, data.neg_test, data.neg_size)
+    # count number of occurrences for each movie
+    if neg_by_freq:
+        um = ssp.coo_matrix((np.ones_like(users_train), (users_train, movies_train)))
+        movie_count = torch.FloatTensor(um.sum(0).A.squeeze())
+    else:
+        movie_count = None
+
+    train_dataset = EdgeDataset(
+            users_train, movies_train, data.neg_train, n_negs,
+            movie_count, neg_freq_max, neg_freq_min)
     node_dataset = NodeDataset(data.num_movies)
     train_collator = EdgeNodeFlowGenerator(
             HG, 'um', 'mu', n_neighbors, n_traces, trace_len, pinsage_p.n_layers, n_negs)
-    valid_collator = EdgeNodeFlowGenerator(
-            HG, 'um', 'mu', n_neighbors, n_traces, trace_len, pinsage_p.n_layers, data.neg_size)
-    test_collator = EdgeNodeFlowGenerator(
-            HG, 'um', 'mu', n_neighbors, n_traces, trace_len, pinsage_p.n_layers, data.neg_size)
     node_collator = NodeFlowGenerator(
             HG, 'um', 'mu', n_neighbors, n_traces, trace_len, pinsage_p.n_layers, n_negs)
     train_loader = DataLoader(
@@ -162,20 +173,6 @@ def train():
             shuffle=True,
             num_workers=num_workers,
             collate_fn=train_collator)
-    valid_loader = DataLoader(
-            valid_dataset,
-            batch_size=batch_size,
-            drop_last=False,
-            shuffle=False,
-            num_workers=num_workers,
-            collate_fn=valid_collator)
-    test_loader = DataLoader(
-            test_dataset,
-            batch_size=batch_size,
-            drop_last=False,
-            shuffle=False,
-            num_workers=num_workers,
-            collate_fn=test_collator)
     node_loader = DataLoader(
             node_dataset,
             batch_size=batch_size,
@@ -216,55 +213,8 @@ def train():
 
                 t.set_postfix({'loss': '%.06f' % loss.item()})
 
-        hits_10s = []
-        ndcg_10s = []
-        with torch.no_grad():
-            with tqdm.tqdm(valid_loader) as t:
-                for U, I, I_neg, I_U, N_U, nf_i, nf_u, nf_neg, I_in_I_U in t:
-                    U = U.to(device)
-                    I = I.to(device)
-                    I_neg = I_neg.to(device)
-                    relevance = np.array([1])
-
-                    r, r_neg = model(I, U, I_neg, I_U, N_U, nf_i, nf_u, nf_neg, I_in_I_U)
-                    r_all = torch.cat([r[:, None], r_neg], 1).cpu().numpy()
-                    for _r_all in r_all:
-                        hits_10, ndcg_10 = evaluate(_r_all, 1, relevance)
-                        hits_10s.append(hits_10)
-                        ndcg_10s.append(ndcg_10)
-
-        hits_10_valid = np.mean(hits_10s)
-        ndcg_10_valid = np.mean(ndcg_10s)
-
-        hits_10s = []
-        ndcg_10s = []
-        with torch.no_grad():
-            with tqdm.tqdm(test_loader) as t:
-                for U, I, I_neg, I_U, N_U, nf_i, nf_u, nf_neg, I_in_I_U in t:
-                    U = U.to(device)
-                    I = I.to(device)
-                    I_neg = I_neg.to(device)
-                    relevance = np.array([1])
-
-                    r, r_neg = model(I, U, I_neg, I_U, N_U, nf_i, nf_u, nf_neg, I_in_I_U)
-                    r_all = torch.cat([r[:, None], r_neg], 1).cpu().numpy()
-                    for _r_all in r_all:
-                        hits_10, ndcg_10 = evaluate(_r_all, 1, relevance)
-                        hits_10s.append(hits_10)
-                        ndcg_10s.append(ndcg_10)
-
-        hits_10_test = np.mean(hits_10s)
-        ndcg_10_test = np.mean(ndcg_10s)
-
         torch.save(model.state_dict(), model_path)
 
-        print('HITS@10: %.6f NDCG@10: %.6f' % (hits_10_valid, ndcg_10_valid),
-              'Test HITS@10: %.6f NDCG@10: %.6f' % (hits_10_test, ndcg_10_test))
-
-        if user_latest_item is None:
-            continue
-
-        # find most similar item embedding
         with torch.no_grad():
             # evaluate - precompute item embeddings
             z_p = []
@@ -276,6 +226,59 @@ def train():
             z_p = torch.cat(z_p)
             z_q = torch.cat(z_q)
 
+            metrics_valid = []
+            metrics_test = []
+            metrics_test_all = []
+            for U in tqdm.trange(data.num_users):
+                _, I_U = HG.out_edges(U, form='uv', etype='um')
+                n_valid = n_test = 1
+                n_valid_neg = len(data.neg_valid[U])
+                n_test_neg = len(data.neg_test[U])
+                n_test_neg_all = len(data.neg_test_complete[U])
+
+                I = torch.LongTensor(np.concatenate([
+                    [data.movies_valid[U]],
+                    [data.movies_test[U]],
+                    data.neg_valid[U],
+                    data.neg_test[U],
+                    data.neg_test_complete[U]])).to(device)
+                U = torch.tensor(U, dtype=torch.int64).to(device)
+
+                p_ctx = z_p[I_U].mean(0)
+                q = z_q[I]
+
+                relevance = np.array([1])
+                score = model.rating(U, I, p_ctx, q)
+                score_valid, score_test, score_valid_neg, score_test_neg, score_test_neg_all = \
+                        score.split([n_valid, n_test, n_valid_neg, n_test_neg, n_test_neg_all])
+
+                metrics_valid.append(evaluate(
+                        torch.cat([score_valid, score_valid_neg]).cpu().numpy(),
+                        1, relevance))
+                metrics_test.append(evaluate(
+                        torch.cat([score_test, score_test_neg]).cpu().numpy(),
+                        1, relevance))
+                metrics_test_all.append(evaluate(
+                        torch.cat([score_test, score_test_neg_all]).cpu().numpy(),
+                        1, relevance))
+
+        metrics_valid = np.mean(metrics_valid, 0)
+        metrics_test = np.mean(metrics_test, 0)
+        metrics_test_all = np.mean(metrics_test_all, 0)
+
+        print('HITS@10:', metrics_valid[0],
+              'NDCG@10:', metrics_valid[1],
+              'HITS@10 (Test):', metrics_test[0],
+              'NDCG@10 (Test):', metrics_test[1],
+              'HITS@10 (Test all):', metrics_test_all[0],
+              'NDCG@10 (Test all):', metrics_test_all[1])
+
+
+        '''
+        if user_latest_item is None:
+            continue
+
+        # find most similar item embedding
         z_q = z_q.cpu().numpy()
         m_dist = cosine_similarity(z_q)
 
@@ -298,10 +301,13 @@ def train():
 
         hits_10s = []
         ndcg_10s = []
+        hits_10s_all = []
+        ndcg_10s_all = []
         for u, i in zip(users_test, movies_test):
             I_q = user_latest_item[u]
             I_pos = np.array([i])
             I_neg = data.neg_test[u]
+            I_neg_all = data.neg_test_complete[u]
             relevance = np.array([1])
 
             I = torch.cat([torch.LongTensor(I_pos), torch.LongTensor(I_neg)])
@@ -315,6 +321,7 @@ def train():
 
         print('NN-HITS@10: %.6f NN-NDCG@10: %.6f' % (hits_10_knn_valid, ndcg_10_knn_valid),
               'Test NN-HITS@10: %.6f NN-NDCG@10: %.6f' % (hits_10_knn_test, ndcg_10_knn_test))
+        '''
 
 
 train()

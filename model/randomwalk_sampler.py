@@ -118,16 +118,26 @@ class CooccurrenceNodeFlowGenerator(BaseNodeFlowGenerator):
 
 
 class EdgeDataset(Dataset):
-    def __init__(self, users, movies, negs, n_negs_to_sample):
+    def __init__(self, users, movies, negs, n_negs_to_sample, movie_freq=None,
+                 movie_freq_min=1, movie_freq_max=100):
         self.users = users
         self.movies = movies
         self.negs = negs
         self.n_negs_to_sample = n_negs_to_sample
+        if movie_freq is not None:
+            self.movie_freq = np.maximum(np.minimum(movie_freq, movie_freq_max), movie_freq_min)
+        else:
+            self.movie_freq = None
 
     def __getitem__(self, i):
         u = self.users[i]
-        return u, self.movies[i], \
-                np.random.choice(self.negs[u], self.n_negs_to_sample)
+        if self.movie_freq is not None:
+            freq = self.movie_freq[self.negs[u]]
+            p = freq / freq.sum()
+            negs = np.random.choice(self.negs[u], self.n_negs_to_sample, replace=True)
+        else:
+            negs = np.random.choice(self.negs[u], self.n_negs_to_sample)
+        return u, self.movies[i], negs
 
     def __len__(self):
         return len(self.users)

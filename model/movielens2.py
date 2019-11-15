@@ -29,6 +29,7 @@ class MovieLens(object):
 
         self.neg_size = neg_size
         self.neg_train = [None] * num_users
+        self.neg_test_complete = [None] * num_users
         self.neg_valid = np.zeros((num_users, neg_size), dtype='int64')
         self.neg_test = np.zeros((num_users, neg_size), dtype='int64')
 
@@ -36,6 +37,7 @@ class MovieLens(object):
             interacted_movies = train[u].nonzero()[1]
             neg_samples = np.setdiff1d(np.arange(num_movies), interacted_movies)
             self.neg_train[u] = neg_samples
+            self.neg_test_complete[u] = np.setdiff1d(neg_samples, [self.movies_valid[u]])
             self.neg_valid[u] = np.random.choice(neg_samples, neg_size)
             self.neg_test[u] = test_neg[u].nonzero()[1]
 

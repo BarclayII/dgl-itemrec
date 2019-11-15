@@ -49,16 +49,23 @@ class FISM(nn.Module):
         p_ctx = p_sum - p_self * I_in_I_U.view(-1, 1)
         div = ((N_U.float() - I_in_I_U.float()).clamp(min=1) ** self.alpha).unsqueeze(1)
         p_ctx_avg = p_ctx / div
-        pq = (p_ctx_avg * q).sum(1)
-        r = self.b_u[U] + self.b_i[I] + pq
+        r = self.rating(U, I, p_ctx_avg, q)
 
         if I_neg is not None:
             n_negs = I_neg.shape[1]
             I_neg_flat = I_neg.view(-1)
             q_neg = self.Q(I_neg_flat, nf_neg)
             q_neg = q_neg.view(batch_size, n_negs, -1)  # batch_size, n_negs, n_dims
-            pq_neg = (p_ctx_avg.unsqueeze(1) * q_neg).sum(2)
-            r_neg = self.b_u[U].unsqueeze(1) + self.b_i[I_neg] + pq_neg
+            r_neg = self.rating(U, I_neg, p_ctx_avg, q_neg)
             return r, r_neg
         else:
             return r
+
+    def rating(self, U, I, p_ctx, q):
+        if U.dim() == I.dim():
+            pq = (p_ctx * q).sum(-1)
+            r = self.b_u[U] + self.b_i[I] + pq
+        elif U.dim() == I.dim() - 1:
+            pq = (p_ctx.unsqueeze(-2) * q).sum(-1)
+            r = self.b_u[U].unsqueeze(-1) + self.b_i[I] + pq
+        return r

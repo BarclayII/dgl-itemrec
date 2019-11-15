@@ -28,6 +28,7 @@ class BookCrossing(object):
 
         train = train.tocsr()
         self.neg_train = [None] * num_users
+        self.neg_test_complete = [None] * num_users
         self.neg_valid = valid_neg
         self.neg_test = test_neg
         self.neg_size = valid_neg.shape[1]
@@ -36,6 +37,7 @@ class BookCrossing(object):
             interacted_movies = train[u].nonzero()[1]
             neg_samples = np.setdiff1d(np.arange(num_movies), interacted_movies)
             self.neg_train[u] = neg_samples
+            self.neg_test_complete[u] = np.setdiff1d(neg_samples, [self.movies_valid[u]])
 
         self.movie_data = {
                 'abstract': torch.FloatTensor(abstract.asnumpy()),
