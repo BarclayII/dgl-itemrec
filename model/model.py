@@ -54,7 +54,7 @@ class FISM(nn.Module):
             I_neg_flat = I_neg.view(-1)
             q_neg = self.Q(I_neg_flat, nf_neg)
             q_neg = q_neg.view(batch_size, n_negs, -1)  # batch_size, n_negs, n_dims
-            pq_neg = (p_ctx.unsqueeze(1) * q_neg).sum(2) / (N_U.float().unsqueeze(1) ** self.alpha)
+            pq_neg = (p_ctx.unsqueeze(1) * q_neg).sum(2) / ((N_U.float() - 1).unsqueeze(1) ** self.alpha)
             r_neg = self.b_u[U].unsqueeze(1) + self.b_i[I_neg] + pq_neg
             return r, r_neg
         else:
