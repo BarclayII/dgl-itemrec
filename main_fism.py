@@ -191,12 +191,12 @@ def train():
         # train
         sum_loss = 0
         with tqdm.tqdm(train_loader) as t:
-            for U, I, I_neg, I_U, N_U, nf_i, nf_u, nf_neg in t:
+            for U, I, I_neg, I_U, N_U, nf_i, nf_u, nf_neg, I_in_I_U in t:
                 U = U.to(device)
                 I = I.to(device)
                 I_neg = I_neg.to(device)
 
-                r, r_neg = model(I, U, I_neg, I_U, N_U, nf_i, nf_u, nf_neg)
+                r, r_neg = model(I, U, I_neg, I_U, N_U, nf_i, nf_u, nf_neg, I_in_I_U)
 
                 if loss_fn == 'bce':
                     r_neg = r_neg.view(-1)
@@ -220,13 +220,13 @@ def train():
         ndcg_10s = []
         with torch.no_grad():
             with tqdm.tqdm(valid_loader) as t:
-                for U, I, I_neg, I_U, N_U, nf_i, nf_u, nf_neg in t:
+                for U, I, I_neg, I_U, N_U, nf_i, nf_u, nf_neg, I_in_I_U in t:
                     U = U.to(device)
                     I = I.to(device)
                     I_neg = I_neg.to(device)
                     relevance = np.array([1])
 
-                    r, r_neg = model(I, U, I_neg, I_U, N_U, nf_i, nf_u, nf_neg)
+                    r, r_neg = model(I, U, I_neg, I_U, N_U, nf_i, nf_u, nf_neg, I_in_I_U)
                     r_all = torch.cat([r[:, None], r_neg], 1).cpu().numpy()
                     for _r_all in r_all:
                         hits_10, ndcg_10 = evaluate(_r_all, 1, relevance)
@@ -240,13 +240,13 @@ def train():
         ndcg_10s = []
         with torch.no_grad():
             with tqdm.tqdm(test_loader) as t:
-                for U, I, I_neg, I_U, N_U, nf_i, nf_u, nf_neg in t:
+                for U, I, I_neg, I_U, N_U, nf_i, nf_u, nf_neg, I_in_I_U in t:
                     U = U.to(device)
                     I = I.to(device)
                     I_neg = I_neg.to(device)
                     relevance = np.array([1])
 
-                    r, r_neg = model(I, U, I_neg, I_U, N_U, nf_i, nf_u, nf_neg)
+                    r, r_neg = model(I, U, I_neg, I_U, N_U, nf_i, nf_u, nf_neg, I_in_I_U)
                     r_all = torch.cat([r[:, None], r_neg], 1).cpu().numpy()
                     for _r_all in r_all:
                         hits_10, ndcg_10 = evaluate(_r_all, 1, relevance)

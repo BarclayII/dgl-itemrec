@@ -146,7 +146,13 @@ class EdgeNodeFlowGenerator(BaseNodeFlowGenerator):
         nf_u = self.generate(I_U)
         nf_neg = self.generate(I_neg.view(-1))
 
-        return U, I, I_neg, I_U, N_U, nf_i, nf_u, nf_neg
+        I_Us = I_U.split(N_U.numpy().tolist())
+        I_in_I_U = [
+                _I.numpy() in _I_U.numpy()
+                for _I, _I_U in zip(I, I_Us)]
+        I_in_I_U = torch.LongTensor(I_in_I_U)
+
+        return U, I, I_neg, I_U, N_U, nf_i, nf_u, nf_neg, I_in_I_U
 
 
 def to_device(x, device):

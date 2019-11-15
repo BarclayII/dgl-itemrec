@@ -24,8 +24,8 @@ def get_best_model_name(hyperparams, script_name):
 gpu_ids = [0, 1, 2, 3]
 
 # The script to run
-#script = 'main_fism.py'
-script = 'main_knn.py'
+script = 'main_fism.py'
+#script = 'main_knn.py'
 
 # Number of combinations to try, or None for complete grid search
 n_combinations = None
@@ -124,6 +124,8 @@ with mp.Pool(len(gpu_ids)) as p:
                 better=operator.gt),
             hyperparam_iterator(hyperparam_grid, n_combinations))
     print(list(result), file=outfile)
+#for hp in hyperparam_iterator(hyperparam_grid, n_combinations):
+#    work(hp, script_name=script, regex=r'HTS@10: ([0-9.]+)', better=operator.gt)
 outfile.close()
 # One can read the result by the following:
 # with open(outfile_path) as f:
