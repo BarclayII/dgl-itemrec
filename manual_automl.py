@@ -24,8 +24,8 @@ def get_best_model_name(hyperparams, script_name):
 gpu_ids = [0, 1, 2, 3]
 
 # The script to run
-script = 'main_fism.py'
-#script = 'main_knn.py'
+#script = 'main_fism.py'
+script = 'main_knn.py'
 
 # Number of combinations to try, or None for complete grid search
 n_combinations = None
@@ -53,10 +53,10 @@ hyperparam_grid = {
         'neg-by-freq': [False, True],
         'neg-freq-max': [100],
         'neg-freq-min': [1],
-        'data-pickle': ['bx.pkl'],
-        'data-path': ['../bookcrossing'],
-        'dataset': ['bx'],
-        'alpha': [1],
+        'data-pickle': ['rr.pkl'],
+        'data-path': ['../DGL-RS/datasets/retailrocket/data_2_10'],
+        'dataset': ['retailrocket'],
+        #'alpha': [1],
         }
 
 def work(hyperparams, script_name, regex, better):

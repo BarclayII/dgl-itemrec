@@ -17,6 +17,7 @@ from model.pinsage import PinSage
 from model.ranking import evaluate
 from model.movielens2 import MovieLens
 from model.bookcrossing import BookCrossing
+from model.retailrocket import RetailRocket
 from model.randomwalk_sampler import CooccurrenceDataset, CooccurrenceNodeFlowGenerator
 from model.randomwalk_sampler import NodeDataset, NodeFlowGenerator, to_device
 
@@ -84,6 +85,8 @@ else:
         data = MovieLens(data_path)
     elif dataset == 'bx':
         data = BookCrossing(data_path)
+    elif dataset == 'retailrocket':
+        data = RetailRocket(data_path)
     with open(data_pickle, 'wb') as f:
         pickle.dump(data, f)
 
@@ -207,22 +210,34 @@ def train():
 
     baseline_hits_10s = []
     baseline_ndcg_10s = []
-    baseline_score_all = data.movie_count
+    baseline_hits_10s_all = []
+    baseline_ndcg_10s_all = []
+    baseline_score_full = data.movie_count
 
     for u, i in zip(users_test, movies_test):
         I_q = user_latest_item[u]
         I_pos = np.array([i])
         I_neg = data.neg_test[u]
+        I_neg_all = data.neg_test_complete[u]
         relevance = np.array([1])
 
         I = torch.cat([torch.LongTensor(I_pos), torch.LongTensor(I_neg)])
-        baseline_score = baseline_score_all[I.numpy()]
+        I_all = torch.cat([torch.LongTensor(I_pos), torch.LongTensor(I_neg_all)])
+        baseline_score = baseline_score_full[I.numpy()]
+        baseline_score_all = baseline_score_full[I_all.numpy()]
+
         hits_10, ndcg_10 = evaluate(baseline_score, 1, relevance)
+        hits_10_all, ndcg_10_all = evaluate(baseline_score_all, 1, relevance)
         baseline_hits_10s.append(hits_10)
         baseline_ndcg_10s.append(ndcg_10)
+        baseline_hits_10s_all.append(hits_10_all)
+        baseline_ndcg_10s_all.append(ndcg_10_all)
 
     print('HITS@10 (Most popular):', np.mean(baseline_hits_10s),
-          'NDCG@10 (Most popular):', np.mean(baseline_ndcg_10s))
+          'NDCG@10 (Most popular):', np.mean(baseline_ndcg_10s),
+          'HITS@10 (Most popular all):', np.mean(baseline_hits_10s_all),
+          'NDCG@10 (Most popular all):', np.mean(baseline_ndcg_10s_all),
+          )
 
     um = np.zeros((data.num_users, data.num_movies))
     um[users_train, movies_train] = 1
@@ -231,20 +246,31 @@ def train():
     m_dist = cosine_similarity(mu)
     baseline_hits_10s = []
     baseline_ndcg_10s = []
+    baseline_hits_10s_all = []
+    baseline_ndcg_10s_all = []
     for u, i in zip(users_test, movies_test):
         I_q = user_latest_item[u]
         I_pos = np.array([i])
         I_neg = data.neg_test[u]
+        I_neg_all = data.neg_test_complete[u]
         relevance = np.array([1])
 
         I = torch.cat([torch.LongTensor(I_pos), torch.LongTensor(I_neg)])
-        baseline_score = m_dist[I_q][I]
+        I_all = torch.cat([torch.LongTensor(I_pos), torch.LongTensor(I_neg_all)])
+        baseline_score = m_dist[I_q][I.numpy()]
+        baseline_score_all = m_dist[I_q][I_all.numpy()]
         hits_10, ndcg_10 = evaluate(baseline_score, 1, relevance)
+        hits_10_all, ndcg_10_all = evaluate(baseline_score_all, 1, relevance)
         baseline_hits_10s.append(hits_10)
         baseline_ndcg_10s.append(ndcg_10)
+        baseline_hits_10s_all.append(hits_10_all)
+        baseline_ndcg_10s_all.append(ndcg_10_all)
 
     print('HITS@10 (Item-KNN):', np.mean(baseline_hits_10s),
-          'NDCG@10 (Item-KNN):', np.mean(baseline_ndcg_10s))
+          'NDCG@10 (Item-KNN):', np.mean(baseline_ndcg_10s),
+          'HITS@10 (Most popular all):', np.mean(baseline_hits_10s_all),
+          'NDCG@10 (Most popular all):', np.mean(baseline_ndcg_10s_all),
+          )
 
     for _ in range(n_epoch):
         # train
