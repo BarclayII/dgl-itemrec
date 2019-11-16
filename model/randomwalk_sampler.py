@@ -134,7 +134,7 @@ class EdgeDataset(Dataset):
         if self.movie_freq is not None:
             freq = self.movie_freq[self.negs[u]]
             p = freq / freq.sum()
-            negs = np.random.choice(self.negs[u], self.n_negs_to_sample, replace=True)
+            negs = np.random.choice(self.negs[u], self.n_negs_to_sample, replace=True, p=p)
         else:
             negs = np.random.choice(self.negs[u], self.n_negs_to_sample)
         return u, self.movies[i], negs
