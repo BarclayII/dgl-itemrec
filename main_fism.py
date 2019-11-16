@@ -18,6 +18,7 @@ from model.ranking import evaluate
 from model.movielens2 import MovieLens
 from model.bookcrossing import BookCrossing
 from model.yelp import Yelp2018
+from model.retailrocket import RetailRocket
 from model.randomwalk_sampler import EdgeDataset, EdgeNodeFlowGenerator, \
         NodeDataset, NodeFlowGenerator, to_device
 
@@ -87,6 +88,8 @@ else:
         data = BookCrossing(data_path)
     elif dataset == 'yelp':
         data = Yelp2018(data_path)
+    elif dataset == 'retailrocket':
+        data = RetailRocket(data_path)
     with open(data_pickle, 'wb') as f:
         pickle.dump(data, f)
 
@@ -228,38 +231,90 @@ def train():
             metrics_valid = []
             metrics_test = []
             metrics_test_all = []
-            for U in tqdm.trange(data.num_users):
-                _, I_U = HG.out_edges(U, form='uv', etype='um')
-                n_valid = n_test = 1
-                n_valid_neg = len(data.neg_valid[U])
-                n_test_neg = len(data.neg_test[U])
-                n_test_neg_all = len(data.neg_test_complete[U])
+            if dataset == 'retailrocket':
+                for i in tqdm.trange(valid_size):
+                    U = data.users_valid[i]
+                    I = data.movies_valid[i]
+                    I_U = data.ctx_movies[data.ctx_users == U]
+                    n_valid = 1
+                    n_valid_neg = len(data.neg_valid[U])
 
-                I = torch.LongTensor(np.concatenate([
-                    [data.movies_valid[U]],
-                    [data.movies_test[U]],
-                    data.neg_valid[U],
-                    data.neg_test[U],
-                    data.neg_test_complete[U]])).to(device)
-                U = torch.tensor(U, dtype=torch.int64).to(device)
+                    I = torch.LongTensor(np.concatenate([
+                        [I], data.neg_valid[U]])).to(device)
+                    U = torch.tensor(U, dtype=torch.int64).to(device)
 
-                p_ctx = z_p[I_U].mean(0)
-                q = z_q[I]
+                    p_ctx = z_p[I_U].mean(0)
+                    q = z_q[I]
 
-                relevance = np.array([1])
-                score = model.rating(U, I, p_ctx, q)
-                score_valid, score_test, score_valid_neg, score_test_neg, score_test_neg_all = \
-                        score.split([n_valid, n_test, n_valid_neg, n_test_neg, n_test_neg_all])
+                    relevance = np.array([1])
+                    score = model.rating(U, I, p_ctx, q)
+                    score_valid, score_valid_neg = score.split([n_valid, n_valid_neg])
 
-                metrics_valid.append(evaluate(
-                        torch.cat([score_valid, score_valid_neg]).cpu().numpy(),
-                        1, relevance))
-                metrics_test.append(evaluate(
-                        torch.cat([score_test, score_test_neg]).cpu().numpy(),
-                        1, relevance))
-                metrics_test_all.append(evaluate(
-                        torch.cat([score_test, score_test_neg_all]).cpu().numpy(),
-                        1, relevance))
+                    metrics_valid.append(evaluate(
+                            torch.cat([score_valid, score_valid_neg]).cpu().numpy(),
+                            1, relevance))
+
+                for i in tqdm.trange(test_size):
+                    U = data.users_test[i]
+                    I = data.movies_test[i]
+                    I_U = data.ctx_movies[data.ctx_users == U]
+                    n_test = 1
+                    n_test_neg = len(data.neg_test[U])
+                    n_test_neg_all = len(data.neg_test_complete[U])
+
+                    I = torch.LongTensor(np.concatenate([
+                        [I],
+                        data.neg_test[U],
+                        data.neg_test_complete[U]])).to(device)
+                    U = torch.tensor(U, dtype=torch.int64).to(device)
+
+                    p_ctx = z_p[I_U].mean(0)
+                    q = z_q[I]
+
+                    relevance = np.array([1])
+                    score = model.rating(U, I, p_ctx, q)
+                    score_test, score_test_neg, score_test_neg_all = \
+                            score.split([n_test, n_test_neg, n_test_neg_all])
+
+                    metrics_test.append(evaluate(
+                            torch.cat([score_test, score_test_neg]).cpu().numpy(),
+                            1, relevance))
+                    metrics_test_all.append(evaluate(
+                            torch.cat([score_test, score_test_neg_all]).cpu().numpy(),
+                            1, relevance))
+            else:
+                for U in tqdm.trange(data.num_users):
+                    _, I_U = HG.out_edges(U, form='uv', etype='um')
+                    n_valid = n_test = 1
+                    n_valid_neg = len(data.neg_valid[U])
+                    n_test_neg = len(data.neg_test[U])
+                    n_test_neg_all = len(data.neg_test_complete[U])
+
+                    I = torch.LongTensor(np.concatenate([
+                        [data.movies_valid[U]],
+                        [data.movies_test[U]],
+                        data.neg_valid[U],
+                        data.neg_test[U],
+                        data.neg_test_complete[U]])).to(device)
+                    U = torch.tensor(U, dtype=torch.int64).to(device)
+
+                    p_ctx = z_p[I_U].mean(0)
+                    q = z_q[I]
+
+                    relevance = np.array([1])
+                    score = model.rating(U, I, p_ctx, q)
+                    score_valid, score_test, score_valid_neg, score_test_neg, score_test_neg_all = \
+                            score.split([n_valid, n_test, n_valid_neg, n_test_neg, n_test_neg_all])
+
+                    metrics_valid.append(evaluate(
+                            torch.cat([score_valid, score_valid_neg]).cpu().numpy(),
+                            1, relevance))
+                    metrics_test.append(evaluate(
+                            torch.cat([score_test, score_test_neg]).cpu().numpy(),
+                            1, relevance))
+                    metrics_test_all.append(evaluate(
+                            torch.cat([score_test, score_test_neg_all]).cpu().numpy(),
+                            1, relevance))
 
         metrics_valid = np.mean(metrics_valid, 0)
         metrics_test = np.mean(metrics_test, 0)

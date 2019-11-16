@@ -138,7 +138,6 @@ class PinSage(nn.Module):
                 elif scheme.dtype == torch.float32:
                     self.proj[key] = nn.Sequential(
                             nn.Linear(scheme.shape[0], self.in_features),
-                            nn.LeakyReLU(),
                             )
 
     
