@@ -153,13 +153,13 @@ def train():
     # count number of occurrences for each movie
     if neg_by_freq:
         um = ssp.coo_matrix((np.ones_like(users_train), (users_train, movies_train)))
-        movie_count = torch.FloatTensor(um.sum(0).A.squeeze())
+        movie_count = um.sum(0).A.squeeze()
     else:
         movie_count = None
 
     train_dataset = EdgeDataset(
             users_train, movies_train, data.neg_train, n_negs,
-            movie_count, neg_freq_max, neg_freq_min)
+            movie_count, neg_freq_min, neg_freq_max)
     node_dataset = NodeDataset(data.num_movies)
     train_collator = EdgeNodeFlowGenerator(
             HG, 'um', 'mu', n_neighbors, n_traces, trace_len, pinsage_p.n_layers, n_negs)
