@@ -4,6 +4,7 @@ import numpy as np
 import pandas as pd
 import tqdm
 import torch
+from .utils import ComplementView
 
 class RetailRocket(object):
     def __init__(self, path, neg_size=99):
@@ -14,17 +15,17 @@ class RetailRocket(object):
         test_uv = pd.read_csv(os.path.join(path, 'test_uv.csv'), sep='\t')
         valid_uv = pd.read_csv(os.path.join(path, 'val_uv.csv'), sep='\t')
 
-        self.users_train = train_uv['visitorid'].values
-        self.movies_train = train_uv['itemid'].values
+        self.users_train = train_uv['visitorid'].values.copy()
+        self.movies_train = train_uv['itemid'].values.copy()
         valid_uv_target = valid_uv.groupby('visitorid').apply(lambda x: x.iloc[-1])
         test_uv_target = test_uv.groupby('visitorid').apply(lambda x: x.iloc[-1])
 
         all_uv = pd.concat([train_uv, test_uv, valid_uv], 0)
 
-        self.users_valid = valid_uv_target['visitorid'].values
-        self.movies_valid = valid_uv_target['itemid'].values
-        self.users_test = test_uv_target['visitorid'].values
-        self.movies_test = test_uv_target['itemid'].values
+        self.users_valid = valid_uv_target['visitorid'].values.copy()
+        self.movies_valid = valid_uv_target['itemid'].values.copy()
+        self.users_test = test_uv_target['visitorid'].values.copy()
+        self.movies_test = test_uv_target['itemid'].values.copy()
 
         self.train_size = len(self.users_train)
         self.valid_size = len(self.users_valid)
@@ -36,24 +37,25 @@ class RetailRocket(object):
         self.num_movies = all_uv['itemid'].max() + 1
 
         self.neg_size = neg_size
-        self.neg_train = [None] * self.num_users
+        self._pos_train = [None] * self.num_users
         self.neg_valid = np.zeros((self.num_users, neg_size), dtype='int64')
 
         for u in tqdm.trange(self.num_users):
-            interacted_movies = all_uv[all_uv['visitorid'] == u]['itemid'].values
+            interacted_movies = all_uv[all_uv['visitorid'] == u]['itemid'].values.copy()
+            self._pos_train[u] = interacted_movies
             neg_samples = np.setdiff1d(np.arange(self.num_movies), interacted_movies)
-            self.neg_train[u] = neg_samples
             self.neg_valid[u] = np.random.choice(neg_samples, neg_size)
 
         all_query = all_uv.groupby('visitorid').apply(lambda x: x.iloc[-2])
         past_items = all_uv.groupby('visitorid').apply(lambda x: x.iloc[:-1])
-        self.ctx_users = past_items['visitorid'].values
-        self.ctx_movies = past_items['itemid'].values
+        self.ctx_users = past_items['visitorid'].values.copy()
+        self.ctx_movies = past_items['itemid'].values.copy()
         self.user_latest_item = {r['visitorid']: r['itemid'] for _, r in all_query.iterrows()}
 
         self.movie_data = {'x': torch.FloatTensor(x)}
-        self.movie_count = train_uv['itemid'].value_counts().sort_index().values
+        self.movie_count = train_uv['itemid'].value_counts().sort_index().values.copy()
         assert len(self.movie_count) == self.num_movies
+        self.neg_train = ComplementView(self._pos_train, self.num_movies)
 
     @property
     def neg_test(self):

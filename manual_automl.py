@@ -38,7 +38,7 @@ outfile_path = 'result.' + script + '.log.' + date_str
 # Each combination is passed into the script file as shell arguments.
 hyperparam_grid = {
         'batch-size': [1024],
-        'feature-size': [16, 64, 256],
+        'feature-size': [64, 128, 256],
         'weight-decay': [1e-3, 1e-4, 0],
         'lr': [1e-3, 1e-4],
         'num-workers': [8],

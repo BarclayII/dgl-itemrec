@@ -1,5 +1,6 @@
 import pickle
 import numpy as np
+from .utils import ComplementView
 
 class MovieLens(object):
     def __init__(self, path):
@@ -28,16 +29,17 @@ class MovieLens(object):
         num_users, num_movies = train.shape
 
         self.neg_size = neg_size
-        self.neg_train = [None] * num_users
-        self.neg_test_complete = [None] * num_users
+        self._pos_train = [None] * num_users
+        self._pos_test_complete = [None] * num_users
         self.neg_valid = np.zeros((num_users, neg_size), dtype='int64')
         self.neg_test = np.zeros((num_users, neg_size), dtype='int64')
 
         for u in range(num_users):
             interacted_movies = train[u].nonzero()[1]
+            self._pos_train[u] = interacted_movies
+            self._pos_test_complete[u] = np.concatenate([interacted_movies, [self.movies_valid[u]]])
+
             neg_samples = np.setdiff1d(np.arange(num_movies), interacted_movies)
-            self.neg_train[u] = neg_samples
-            self.neg_test_complete[u] = np.setdiff1d(neg_samples, [self.movies_valid[u]])
             self.neg_valid[u] = np.random.choice(neg_samples, neg_size)
             self.neg_test[u] = test_neg[u].nonzero()[1]
 
@@ -47,3 +49,5 @@ class MovieLens(object):
         self.num_users = num_users
         self.num_movies = num_movies
         self.movie_count = train_original.sum(0).A.squeeze().astype('int64')
+        self.neg_train = ComplementView(self._pos_train, self.num_movies)
+        self.neg_test_complete = ComplementView(self._pos_test_complete, self.num_movies)

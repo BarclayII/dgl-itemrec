@@ -2,6 +2,7 @@ import pickle
 import torch
 import os
 import numpy as np
+from .utils import ComplementView
 
 class BookCrossing(object):
     def __init__(self, path):
@@ -27,17 +28,16 @@ class BookCrossing(object):
         self.num_users, self.num_movies = num_users, num_movies = train.shape
 
         train = train.tocsr()
-        self.neg_train = [None] * num_users
-        self.neg_test_complete = [None] * num_users
+        self._pos_train = [None] * num_users
+        self._pos_test_complete = [None] * num_users
         self.neg_valid = valid_neg
         self.neg_test = test_neg
         self.neg_size = valid_neg.shape[1]
 
         for u in range(num_users):
             interacted_movies = train[u].nonzero()[1]
-            neg_samples = np.setdiff1d(np.arange(num_movies), interacted_movies)
-            self.neg_train[u] = neg_samples
-            self.neg_test_complete[u] = np.setdiff1d(neg_samples, [self.movies_valid[u]])
+            self._pos_train[u] = interacted_movies
+            self._pos_test_complete[u] = np.concatenate([interacted_movies, [self.movies_valid[u]]])
 
         self.movie_data = {
                 'abstract': torch.FloatTensor(abstract.asnumpy()),
@@ -45,3 +45,6 @@ class BookCrossing(object):
                 }
         self.user_latest_item = None
         self.movie_count = train.sum(0).A.squeeze().astype('int64')
+
+        self.neg_train = ComplementView(self._pos_train, self.num_movies)
+        self.neg_test_complete = ComplementView(self._pos_test_complete, self.num_movies)
