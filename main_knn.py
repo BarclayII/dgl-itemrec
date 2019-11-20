@@ -51,6 +51,7 @@ parser.add_argument('--pretrain', action='store_true')
 parser.add_argument('--neg-by-freq', action='store_true')
 parser.add_argument('--neg-freq-min', type=float, default=1)
 parser.add_argument('--neg-freq-max', type=float, default=np.inf)
+parser.add_argument('--neg-eta', type=float, default=0.5)
 args = parser.parse_args()
 n_epoch = args.n_epoch
 iters_per_epoch = args.iters_per_epoch
@@ -75,6 +76,7 @@ pretrain = args.pretrain
 neg_by_freq = args.neg_by_freq
 neg_freq_max = args.neg_freq_max
 neg_freq_min = args.neg_freq_min
+neg_eta = args.neg_eta
 
 # Load the cached dataset object, or parse the raw MovieLens data
 if os.path.exists(data_pickle):
@@ -179,6 +181,7 @@ def train():
     train_collator = CooccurrenceNodeFlowGenerator(
             HG, 'um', 'mu', n_neighbors, n_traces, trace_len, model['p'].n_layers, n_negs,
             movie_freq=movie_count, movie_freq_max=neg_freq_max, movie_freq_min=neg_freq_min,
+            eta=neg_eta,
             )
     valid_collator = NodeFlowGenerator(
             HG, 'um', 'mu', n_neighbors, n_traces, trace_len, model['p'].n_layers, n_negs)

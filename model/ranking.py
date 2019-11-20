@@ -121,7 +121,7 @@ def ndcg(relevance, nranks, alternate=True):
 
     return dcg(rel, alternate) / ideal_dcg
 
-def evaluate(score, n_pos, relevance, k=10):
+def evaluate(score, n_pos, relevance, k=3):
     """
     score: score[:n_pos] are scores for positives, score[n_pos:] are for negatives
     relevance[i] stands for the NDCG relevance of i-th positive item.

@@ -90,11 +90,13 @@ class CooccurrenceDataset(Dataset):
 
 
 class CooccurrenceNodeFlowGenerator(BaseNodeFlowGenerator):
-    def __init__(self, *args, movie_freq=None, movie_freq_min=1, movie_freq_max=100):
+    def __init__(self, *args, movie_freq=None, movie_freq_min=1, movie_freq_max=100, eta=0.5):
         super().__init__(*args)
-        self.movie_freq = movie_freq
-        self.movie_freq_min = movie_freq_min
-        self.movie_freq_max = movie_freq_max
+        self.movie_freq = (
+                movie_freq.float()
+                .clamp(min=movie_freq_min, max=movie_freq_max))
+        self.movie_freq = self.movie_freq ** eta
+        self.eta = eta
 
     def __call__(self, batch):
         I_q, I_i, c = zip(*batch)
@@ -104,10 +106,7 @@ class CooccurrenceNodeFlowGenerator(BaseNodeFlowGenerator):
         if self.movie_freq is None:
             I_neg = torch.randint(0, self.num_movies, (len(I_q), self.n_negs))
         else:
-            I_neg = torch.multinomial(
-                    self.movie_freq.clamp(min=self.movie_freq_min, max=self.movie_freq_max),
-                    len(I_q) * self.n_negs,
-                    replacement=True)
+            I_neg = torch.multinomial(self.movie_freq, len(I_q) * self.n_negs, replacement=True)
             I_neg = I_neg.view(-1, self.n_negs)
 
         nf_q = self.generate(I_q)
@@ -119,13 +118,14 @@ class CooccurrenceNodeFlowGenerator(BaseNodeFlowGenerator):
 
 class EdgeDataset(Dataset):
     def __init__(self, users, movies, negs, n_negs_to_sample, movie_freq=None,
-                 movie_freq_min=1, movie_freq_max=100):
+                 movie_freq_min=1, movie_freq_max=100, eta=0.5):
         self.users = users
         self.movies = movies
         self.negs = negs
         self.n_negs_to_sample = n_negs_to_sample
         if movie_freq is not None:
             self.movie_freq = np.maximum(np.minimum(movie_freq, movie_freq_max), movie_freq_min)
+            self.movie_freq = self.movie_freq ** eta
         else:
             self.movie_freq = None
 
