@@ -121,13 +121,18 @@ def ndcg(relevance, nranks, alternate=True):
 
     return dcg(rel, alternate) / ideal_dcg
 
-def evaluate(score, n_pos, relevance, k=3):
+def evaluate(score, n_pos, relevance, k=10):
     """
     score: score[:n_pos] are scores for positives, score[n_pos:] are for negatives
     relevance[i] stands for the NDCG relevance of i-th positive item.
     """
-    rank = scipy.stats.rankdata(-score, 'min')
-    hits_k = (rank[:n_pos] <= k).any()
+    if n_pos == 1:
+        score_pos = score[0]
+        score_neg = score[1:]
+        hits_k = (score_neg > score_pos).sum() < k
+    else:
+        rank = scipy.stats.rankdata(-score, 'min')
+        hits_k = (rank[:n_pos] <= k).any()
 
     full_relevance_array = np.zeros_like(score)
     full_relevance_array[:n_pos] = relevance
@@ -135,3 +140,51 @@ def evaluate(score, n_pos, relevance, k=3):
     ndcg_k = ndcg(full_relevance_array, k)
 
     return hits_k, ndcg_k
+
+# example taken from https://www.kaggle.com/wendykan/ndcg-example
+def dcg_at_k(r, k, method=0):
+    """Score is discounted cumulative gain (dcg)
+    Relevance is positive real values.  Can use binary
+    as the previous methods.
+    Example from
+    http://www.stanford.edu/class/cs276/handouts/EvaluationNew-handout-6-per.pdf
+    Args:
+        r: Relevance scores (list or numpy) in rank order
+            (first element is the first item)
+        k: Number of results to consider
+        method: If 0 then weights are [1.0, 1.0, 0.6309, 0.5, 0.4307, ...]
+                If 1 then weights are [1.0, 0.6309, 0.5, 0.4307, ...]
+    Returns:
+        Discounted cumulative gain
+    """
+    r = np.asfarray(r)[:k]
+    if r.size:
+        if method == 0:
+            return r[0] + np.sum(r[1:] / np.log2(np.arange(2, r.size + 1)))
+        elif method == 1:
+            return np.sum(r / np.log2(np.arange(2, r.size + 2)))
+        else:
+            raise ValueError('method must be 0 or 1.')
+    return 0.
+
+
+def ndcg_at_k(r, k, method=0):
+    """Score is normalized discounted cumulative gain (ndcg)
+    Relevance is positive real values.  Can use binary
+    as the previous methods.
+    Example from
+    http://www.stanford.edu/class/cs276/handouts/EvaluationNew-handout-6-per.pdf
+    >>> r = [3, 2, 3, 0, 0, 1, 2, 2, 3, 0]
+    Args:
+        r: Relevance scores (list or numpy) in rank order
+            (first element is the first item)
+        k: Number of results to consider
+        method: If 0 then weights are [1.0, 1.0, 0.6309, 0.5, 0.4307, ...]
+                If 1 then weights are [1.0, 0.6309, 0.5, 0.4307, ...]
+    Returns:
+        Normalized discounted cumulative gain
+    """
+    dcg_max = dcg_at_k(sorted(r, reverse=True), k, method)
+    if not dcg_max:
+        return 0.
+    return dcg_at_k(r, k, method) / dcg_max

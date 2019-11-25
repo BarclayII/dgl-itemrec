@@ -43,7 +43,7 @@ def init_bias(w):
     nn.init.constant_(w, 0)
 
 class PinSageConv(nn.Module):
-    def __init__(self, in_features, out_features, hidden_features):
+    def __init__(self, in_features, out_features, hidden_features, dropout=0):
         super(PinSageConv, self).__init__()
 
         self.in_features = in_features
@@ -52,6 +52,7 @@ class PinSageConv(nn.Module):
 
         self.Q = nn.Linear(in_features, hidden_features)
         self.W = nn.Linear(in_features + hidden_features, out_features)
+        self.drop = nn.Dropout(dropout)
 
         init_weight(self.Q.weight, 'xavier_uniform_', 'leaky_relu')
         init_weight(self.W.weight, 'xavier_uniform_', 'leaky_relu')
@@ -72,6 +73,8 @@ class PinSageConv(nn.Module):
 
         h_nodeset = get_embeddings(h, nodeset)  # (n_nodes, in_features)
         h_neighbors = get_embeddings(h, nb_nodes.view(-1)).view(n_nodes, T, self.in_features)
+        h_nodeset = self.drop(h_nodeset)
+        h_neighbors = self.drop(h_neighbors)
 
         h_neighbors = F.leaky_relu(self.Q(h_neighbors))
         h_agg = safediv(
@@ -98,7 +101,7 @@ class PinSage(nn.Module):
     '''
     def __init__(self, HG, ntype, forward_etype, backward_etype,
                  feature_size, n_layers, T, n_traces, trace_len,
-                 use_feature=False, own_embedding=False):
+                 use_feature=False, own_embedding=False, dropout=0):
         super(PinSage, self).__init__()
 
         self.HG = HG
@@ -116,7 +119,7 @@ class PinSage(nn.Module):
         self.convs = nn.ModuleList()
         for i in range(self.n_layers):
             self.convs.append(PinSageConv(
-                feature_size, feature_size, feature_size))
+                feature_size, feature_size, feature_size, dropout))
 
         if own_embedding:
             self.h = create_embeddings(HG.number_of_nodes(ntype), self.in_features)
@@ -136,9 +139,11 @@ class PinSage(nn.Module):
                             self.in_features,
                             padding_idx=0)
                 elif scheme.dtype == torch.float32:
-                    self.proj[key] = nn.Sequential(
-                            nn.Linear(scheme.shape[0], self.in_features),
-                            )
+                    self.proj[key] = nn.Linear(scheme.shape[0], self.in_features)
+
+        self.output = nn.Sequential(
+                nn.LayerNorm(feature_size),
+                )
 
     
     def forward(self, nodeset, nodeflow):
@@ -156,6 +161,7 @@ class PinSage(nn.Module):
                     self.emb, self.proj)
         else:
             h = self.h
+
         device = nodeset.device
 
         for i, (curr_nodeset, nb_weights, nb_nodes) in enumerate(nodeflow):
@@ -165,5 +171,7 @@ class PinSage(nn.Module):
             new_embeddings = self.convs[i](h, curr_nodeset, nb_nodes, nb_weights)
             h = put_embeddings(h, curr_nodeset, new_embeddings)
 
-        h_new = get_embeddings(h, nodeset)
+        #h_new = get_embeddings(h, nodeset)
+        #return self.output(h_new)
+        h_new = get_embeddings(self.output(h), nodeset)
         return h_new

@@ -71,7 +71,7 @@ class NodeFlowGenerator(BaseNodeFlowGenerator):
 
 
 class CooccurrenceDataset(Dataset):
-    def __init__(self, users, movies):
+    def __init__(self, users, movies, m_nn=None):
         train_size = len(users)
         M_um = ssp.coo_matrix((np.ones(train_size), (users, movies)))
         M_mm = (M_um.T * M_um).tocoo()
@@ -81,21 +81,32 @@ class CooccurrenceDataset(Dataset):
         self.rows = rows
         self.cols = cols
         self.counts = counts
+        if m_nn is not None:
+            self.m_nn_cols = m_nn.flatten()
+            self.m_nn_rows = np.arange(m_nn.shape[0])[:, None].repeat(m_nn.shape[1]).flatten()
+        else:
+            self.m_nn_cols = self.m_nn_rows = None
 
     def __getitem__(self, i):
-        return self.rows[i], self.cols[i], self.counts[i]
+        if self.m_nn_cols is None:
+            return self.rows[i], self.cols[i], self.counts[i]
+        else:
+            return self.m_nn_rows[i], self.m_nn_cols[i], 1
 
     def __len__(self):
-        return len(self.rows)
+        return len(self.rows) if self.m_nn_cols is None else len(self.m_nn_cols)
 
 
 class CooccurrenceNodeFlowGenerator(BaseNodeFlowGenerator):
     def __init__(self, *args, movie_freq=None, movie_freq_min=1, movie_freq_max=100, eta=0.5):
         super().__init__(*args)
-        self.movie_freq = (
-                movie_freq.float()
-                .clamp(min=movie_freq_min, max=movie_freq_max))
-        self.movie_freq = self.movie_freq ** eta
+        if movie_freq is not None:
+            self.movie_freq = (
+                    movie_freq.float()
+                    .clamp(min=movie_freq_min, max=movie_freq_max))
+            self.movie_freq = self.movie_freq ** eta
+        else:
+            self.movie_freq = None
         self.eta = eta
 
     def __call__(self, batch):
@@ -143,6 +154,39 @@ class EdgeDataset(Dataset):
         return len(self.users)
 
 
+class FeedbackDataset(Dataset):
+    def __init__(self, users, movies, feedback, n_negs_to_sample, movie_freq=None,
+                 movie_freq_min=1, movie_freq_max=100, eta=0.5):
+        self.users = users
+        self.movies = movies
+        self.feedback = feedback
+        self.n_negs_to_sample = n_negs_to_sample
+        if movie_freq is not None:
+            self.movie_freq = np.maximum(np.minimum(movie_freq, movie_freq_max), movie_freq_min)
+            self.movie_freq = self.movie_freq ** eta
+        else:
+            self.movie_freq = None
+
+    #@profile
+    def __getitem__(self, i):
+        u = self.users[i]
+        n_movies = self.feedback.shape[1]
+        if self.movie_freq is not None:
+            freq = self.movie_freq
+            p = freq / freq.sum()
+            negs = np.random.choice(n_movies, self.n_negs_to_sample, replace=True, p=p)
+        else:
+            negs = np.random.choice(n_movies, self.n_negs_to_sample)
+
+        m = self.movies[i]
+        fb_pos = self.feedback[u, m]
+        fb_neg = self.feedback[u, negs]
+        return u, m, negs, fb_pos, fb_neg
+
+    def __len__(self):
+        return len(self.users)
+
+
 class EdgeNodeFlowGenerator(BaseNodeFlowGenerator):
     def __call__(self, batch):
         U, I, I_neg = zip(*batch)
@@ -163,6 +207,31 @@ class EdgeNodeFlowGenerator(BaseNodeFlowGenerator):
         I_in_I_U = torch.LongTensor(I_in_I_U)
 
         return U, I, I_neg, I_U, N_U, nf_i, nf_u, nf_neg, I_in_I_U
+
+
+class FeedbackNodeFlowGenerator(BaseNodeFlowGenerator):
+    #@profile
+    def __call__(self, batch):
+        U, I, I_neg, fb_pos, fb_neg = zip(*batch)
+        U = torch.LongTensor(U)
+        I = torch.LongTensor(I)
+        I_neg = torch.LongTensor(np.stack(I_neg, 0))
+        fb_pos = torch.FloatTensor(fb_pos)
+        fb_neg = torch.FloatTensor(np.stack(fb_neg, 0))
+        _, I_U = self.HG.out_edges(U, form='uv', etype=self.umtype)
+        N_U = self.HG[self.umtype].out_degrees(U)
+
+        nf_i = self.generate(I)
+        nf_u = self.generate(I_U)
+        nf_neg = self.generate(I_neg.view(-1))
+
+        I_Us = I_U.split(N_U.numpy().tolist())
+        I_in_I_U = [
+                _I.numpy() in _I_U.numpy()
+                for _I, _I_U in zip(I, I_Us)]
+        I_in_I_U = torch.LongTensor(I_in_I_U)
+
+        return U, I, I_neg, I_U, N_U, nf_i, nf_u, nf_neg, I_in_I_U, fb_pos, fb_neg
 
 
 def to_device(x, device):

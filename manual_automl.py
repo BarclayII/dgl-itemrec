@@ -44,7 +44,7 @@ hyperparam_grid = {
         'num-workers': [8],
         'id-as-feature': [False, True],
         'n-negs': [20],
-        'n-neighbors': [3],
+        'n-neighbors': [3, 10],
         'n-layers': [0, 1],
         'n-epoch': [20],
         'pretrain': [False],
@@ -53,9 +53,9 @@ hyperparam_grid = {
         'neg-by-freq': [False, True],
         'neg-freq-max': [100],
         'neg-freq-min': [1],
-        'data-pickle': ['rr.pkl'],
-        'data-path': ['../DGL-RS/datasets/retailrocket/data_2_10'],
-        'dataset': ['retailrocket'],
+        'data-pickle': ['bt.pkl'],
+        'data-path': ['../DGL-RS/datasets/bio-techne'],
+        'dataset': ['biotechne'],
         #'alpha': [1],
         }
 

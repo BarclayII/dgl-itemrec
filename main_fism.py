@@ -19,6 +19,7 @@ from model.movielens2 import MovieLens
 from model.bookcrossing import BookCrossing
 from model.yelp import Yelp2018
 from model.retailrocket import RetailRocket
+from model.biotechne import BioTechne
 from model.randomwalk_sampler import EdgeDataset, EdgeNodeFlowGenerator, \
         NodeDataset, NodeFlowGenerator, to_device
 
@@ -52,6 +53,7 @@ parser.add_argument('--loss-fn', type=str, default='sqr')
 parser.add_argument('--neg-by-freq', action='store_true')
 parser.add_argument('--neg-freq-min', type=float, default=1)
 parser.add_argument('--neg-freq-max', type=float, default=np.inf)
+parser.add_argument('--dropout', type=float, default=0)
 args = parser.parse_args()
 n_epoch = args.n_epoch
 batch_size = args.batch_size
@@ -76,6 +78,7 @@ loss_fn = args.loss_fn
 neg_by_freq = args.neg_by_freq
 neg_freq_max = args.neg_freq_max
 neg_freq_min = args.neg_freq_min
+dropout = args.dropout
 
 # Load the cached dataset object, or parse the raw MovieLens data
 if os.path.exists(data_pickle):
@@ -90,6 +93,8 @@ else:
         data = Yelp2018(data_path)
     elif dataset == 'retailrocket':
         data = RetailRocket(data_path)
+    elif dataset == 'biotechne':
+        data = BioTechne(data_path)
     with open(data_pickle, 'wb') as f:
         pickle.dump(data, f)
 
@@ -115,10 +120,10 @@ HG.to(device)
 # Model and optimizer
 pinsage_p = PinSage(
         HG, 'movie', 'mu', 'um', feature_size, n_layers, n_neighbors, n_traces,
-        trace_len, True, id_as_feature)
+        trace_len, True, id_as_feature, dropout)
 pinsage_q = PinSage(
         HG, 'movie', 'mu', 'um', feature_size, n_layers, n_neighbors, n_traces,
-        trace_len, True, id_as_feature)
+        trace_len, True, id_as_feature, dropout)
 model = FISM(HG, pinsage_p, pinsage_q, alpha).to(device)
 
 opt = getattr(torch.optim, optim)(model.parameters(), weight_decay=weight_decay, lr=lr)
@@ -186,9 +191,11 @@ def train():
     if os.path.exists(model_path):
         model.load_state_dict(torch.load(model_path))
 
+    training_set = set((u, i) for u, i in zip(users_train, movies_train))
     for _ in range(n_epoch):
         # train
         sum_loss = 0
+        model.train()
         with tqdm.tqdm(train_loader) as t:
             for U, I, I_neg, I_U, N_U, nf_i, nf_u, nf_neg, I_in_I_U in t:
                 U = U.to(device)
@@ -205,6 +212,9 @@ def train():
                 elif loss_fn == 'sqr':
                     diff = 1 - (r.unsqueeze(1) - r_neg)
                     loss = (diff * diff / 2).sum()
+                elif loss_fn == 'bpr':
+                    #loss = F.softplus(r_neg - r.unsqueeze(1)).mean()
+                    loss = -F.logsigmoid(r.unsqueeze(1) - r_neg).sum()
 
                 opt.zero_grad()
                 loss.backward()
@@ -217,6 +227,7 @@ def train():
 
         torch.save(model.state_dict(), model_path)
 
+        model.eval()
         with torch.no_grad():
             # evaluate - precompute item embeddings
             z_p = []
